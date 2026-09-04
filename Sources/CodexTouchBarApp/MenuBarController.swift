@@ -8,32 +8,103 @@ protocol MenuBarControllerDelegate: AnyObject {
     func menuBarDidRequestContinueReading()
     func menuBarDidRequestExitReadingMode()
     func menuBarDidTogglePause()
+    func menuBarDidToggleStatusBarContent()
+    func menuBarDidSelectAutomaticSession()
+    func menuBarDidSelectSession(url: URL)
     func menuBarDidToggleCompletionSpeech()
     func menuBarDidSelectCompletionSpeechVoice(identifier: String?)
     func menuBarDidSelectCompletionSpeechRate(_ rate: CompletionSpeechRate)
     func menuBarDidSelectCompletionSpeechPitch(_ pitch: CompletionSpeechPitch)
     func menuBarDidSelectDetailDisplayMode(_ mode: TouchBarDetailDisplayMode)
+    func menuBarDidSelectDetailScrollSpeed(_ speed: DetailDisplaySpeed)
+    func menuBarDidSelectDetailPageSpeed(_ speed: DetailDisplaySpeed)
+    func menuBarDidSelectStatusBarPageSpeed(_ speed: DetailDisplaySpeed)
     func menuBarDidSelectReadingAutoPageSpeed(_ speed: ReadingAutoPageSpeed)
     func menuBarDidSelectDisplayLanguage(_ language: DisplayLanguage)
     func menuBarDidRequestRefresh()
 }
 
+private enum MenuBarStatusBadge {
+    case idle
+    case thinking
+    case running
+    case approval
+    case completed
+    case failed
+
+    init(state: CodexDisplayState) {
+        switch TouchBarPetPolicy.mood(for: state, isReading: false) {
+        case .idle, .reading, .selecting:
+            self = .idle
+        case .thinking:
+            self = .thinking
+        case .running:
+            self = .running
+        case .approval:
+            self = .approval
+        case .completed:
+            self = .completed
+        case .failed:
+            self = .failed
+        }
+    }
+
+    var color: NSColor {
+        switch self {
+        case .idle: return .systemGray
+        case .thinking: return .systemPurple.withAlphaComponent(0.75)
+        case .running: return .systemBlue
+        case .approval: return .systemOrange
+        case .completed: return .systemGreen
+        case .failed: return .systemRed
+        }
+    }
+
+    func label(language: DisplayLanguage) -> String {
+        switch (language, self) {
+        case (.english, .idle): return "Idle"
+        case (.english, .thinking): return "Thinking"
+        case (.english, .running): return "Working"
+        case (.english, .approval): return "Waiting for approval"
+        case (.english, .completed): return "Completed"
+        case (.english, .failed): return "Failed"
+        case (.simplifiedChinese, .idle): return "空闲"
+        case (.simplifiedChinese, .thinking): return "思考中"
+        case (.simplifiedChinese, .running): return "执行中"
+        case (.simplifiedChinese, .approval): return "等待审批"
+        case (.simplifiedChinese, .completed): return "已完成"
+        case (.simplifiedChinese, .failed): return "失败"
+        }
+    }
+}
+
 @MainActor
 final class MenuBarController {
     weak var delegate: MenuBarControllerDelegate?
+    private let isTouchBarAvailable: Bool
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let sessionSectionItem = NSMenuItem(title: "Codex Session", action: nil, keyEquivalent: "")
     private let sessionItem = NSMenuItem(title: "Session: -", action: nil, keyEquivalent: "")
     private let projectItem = NSMenuItem(title: "Project: -", action: nil, keyEquivalent: "")
+    private let sessionSwitchItem = NSMenuItem(title: "Switch Session", action: nil, keyEquivalent: "")
     private let readingSectionItem = NSMenuItem(title: "Reading", action: nil, keyEquivalent: "")
     private let touchBarModeItem = NSMenuItem(title: "Touch Bar: Official host window", action: nil, keyEquivalent: "")
     private let readingFileItem = NSMenuItem(title: "Reading File: -", action: nil, keyEquivalent: "")
     private let readingPathItem = NSMenuItem(title: "Reading Path: -", action: nil, keyEquivalent: "")
     private let readingProgressItem = NSMenuItem(title: "Reading Progress: -", action: nil, keyEquivalent: "")
     private let touchBarSectionItem = NSMenuItem(title: "Touch Bar", action: nil, keyEquivalent: "")
+    private let statusBarSectionItem = NSMenuItem(title: "Menu Bar", action: nil, keyEquivalent: "")
     private let detailDisplayModeItem = NSMenuItem(title: "Detail Display: Scrolling", action: nil, keyEquivalent: "")
     private let scrollingDetailItem = NSMenuItem(title: "Scrolling", action: #selector(selectScrollingDetailDisplay), keyEquivalent: "")
     private let pagingDetailItem = NSMenuItem(title: "Paging", action: #selector(selectPagingDetailDisplay), keyEquivalent: "")
+    private let detailScrollSpeedItem = NSMenuItem(title: "Scrolling Speed: Normal", action: nil, keyEquivalent: "")
+    private let slowDetailScrollSpeedItem = NSMenuItem(title: "Slow", action: #selector(selectSlowDetailScrollSpeed), keyEquivalent: "")
+    private let normalDetailScrollSpeedItem = NSMenuItem(title: "Normal", action: #selector(selectNormalDetailScrollSpeed), keyEquivalent: "")
+    private let fastDetailScrollSpeedItem = NSMenuItem(title: "Fast", action: #selector(selectFastDetailScrollSpeed), keyEquivalent: "")
+    private let detailPageSpeedItem = NSMenuItem(title: "Paging Speed: Normal", action: nil, keyEquivalent: "")
+    private let slowDetailPageSpeedItem = NSMenuItem(title: "Slow", action: #selector(selectSlowDetailPageSpeed), keyEquivalent: "")
+    private let normalDetailPageSpeedItem = NSMenuItem(title: "Normal", action: #selector(selectNormalDetailPageSpeed), keyEquivalent: "")
+    private let fastDetailPageSpeedItem = NSMenuItem(title: "Fast", action: #selector(selectFastDetailPageSpeed), keyEquivalent: "")
     private let readingAutoPageSpeedItem = NSMenuItem(title: "Reading Speed: Normal", action: nil, keyEquivalent: "")
     private let slowReadingAutoPageSpeedItem = NSMenuItem(title: "Slow", action: #selector(selectSlowReadingAutoPageSpeed), keyEquivalent: "")
     private let normalReadingAutoPageSpeedItem = NSMenuItem(title: "Normal", action: #selector(selectNormalReadingAutoPageSpeed), keyEquivalent: "")
@@ -47,6 +118,11 @@ final class MenuBarController {
     private let continueReadingItem = NSMenuItem(title: "Continue Reading", action: #selector(continueReading), keyEquivalent: "")
     private let exitReadingModeItem = NSMenuItem(title: "Exit Reading Mode", action: #selector(exitReadingMode), keyEquivalent: "")
     private let pauseItem = NSMenuItem(title: "Pause Updates", action: #selector(togglePause), keyEquivalent: "p")
+    private let statusBarContentItem = NSMenuItem(title: "Show Content in Menu Bar", action: #selector(toggleStatusBarContent), keyEquivalent: "")
+    private let statusBarPageSpeedItem = NSMenuItem(title: "Paging Speed: Normal", action: nil, keyEquivalent: "")
+    private let slowStatusBarPageSpeedItem = NSMenuItem(title: "Slow", action: #selector(selectSlowStatusBarPageSpeed), keyEquivalent: "")
+    private let normalStatusBarPageSpeedItem = NSMenuItem(title: "Normal", action: #selector(selectNormalStatusBarPageSpeed), keyEquivalent: "")
+    private let fastStatusBarPageSpeedItem = NSMenuItem(title: "Fast", action: #selector(selectFastStatusBarPageSpeed), keyEquivalent: "")
     private let languageItem = NSMenuItem(title: "Language", action: nil, keyEquivalent: "")
     private let englishLanguageItem = NSMenuItem(title: "English", action: #selector(selectEnglishLanguage), keyEquivalent: "")
     private let chineseLanguageItem = NSMenuItem(title: "简体中文", action: #selector(selectSimplifiedChineseLanguage), keyEquivalent: "")
@@ -55,21 +131,36 @@ final class MenuBarController {
     private var completionSpeechVoiceMenuSignature = ""
     private var completionSpeechRateMenuSelection: CompletionSpeechRate?
     private var completionSpeechPitchMenuSelection: CompletionSpeechPitch?
+    private var sessionSwitchMenuSignature = ""
     private var displayLanguage: DisplayLanguage = .english
+    private var statusMenu: NSMenu?
+    private var statusBarContentPages: [String] = [""]
+    private var statusBarContentPageIndex = 0
+    private var statusBarContentKey = ""
+    private var statusBarPageTimer: Timer?
+    private var statusBarPageSpeed: DetailDisplaySpeed = .normal
+    private var statusBarBadge: MenuBarStatusBadge = .idle
 
-    init() {
-        statusItem.button?.title = ""
-        statusItem.button?.image = Self.statusBarIcon()
-        statusItem.button?.imagePosition = .imageOnly
-        statusItem.button?.toolTip = "Codex Touch Bar"
-        statusItem.menu = makeMenu()
+    init(isTouchBarAvailable: Bool) {
+        self.isTouchBarAvailable = isTouchBarAvailable
+        let menu = makeMenu()
+        statusMenu = menu
+        statusItem.menu = menu
+        applyStatusBarIcon()
     }
 
     func apply(
         state: CodexDisplayState,
         language: DisplayLanguage,
+        statusBarContentEnabled: Bool,
+        statusBarDetail: CodexDetailPresentation,
+        sessions: [CodexSessionFile],
+        sessionSelectionMode: CodexSessionSelectionMode,
         paused: Bool,
         detailDisplayMode: TouchBarDetailDisplayMode,
+        detailScrollSpeed: DetailDisplaySpeed,
+        detailPageSpeed: DetailDisplaySpeed,
+        statusBarPageSpeed: DetailDisplaySpeed,
         readingAutoPageSpeed: ReadingAutoPageSpeed,
         alwaysOnStatus: String,
         readingFileName: String?,
@@ -84,11 +175,21 @@ final class MenuBarController {
     ) {
         let languageChanged = displayLanguage != language
         displayLanguage = language
+        statusBarBadge = MenuBarStatusBadge(state: state)
         if languageChanged {
             completionSpeechVoiceMenuSignature = ""
             completionSpeechRateMenuSelection = nil
             completionSpeechPitchMenuSelection = nil
+            sessionSwitchMenuSignature = ""
         }
+        updateStatusBarContent(
+            isEnabled: statusBarContentEnabled,
+            text: statusBarDetail.text,
+            sessionID: state.sessionId,
+            language: language,
+            pageSpeed: statusBarPageSpeed
+        )
+        updateSessionSwitchMenu(sessions: sessions, selectionMode: sessionSelectionMode)
         let readingPresentation = ReadingMenuPresentationPolicy.presentation(
             fileName: readingFileName,
             filePath: readingFilePath,
@@ -96,7 +197,17 @@ final class MenuBarController {
             continueReadingFileName: continueReadingFileName,
             language: language
         )
-        updateLocalizedTitles(language: language, state: state, paused: paused, detailDisplayMode: detailDisplayMode, readingAutoPageSpeed: readingAutoPageSpeed, alwaysOnStatus: alwaysOnStatus)
+        updateLocalizedTitles(
+            language: language,
+            state: state,
+            paused: paused,
+            detailDisplayMode: detailDisplayMode,
+            detailScrollSpeed: detailScrollSpeed,
+            detailPageSpeed: detailPageSpeed,
+            statusBarPageSpeed: statusBarPageSpeed,
+            readingAutoPageSpeed: readingAutoPageSpeed,
+            alwaysOnStatus: alwaysOnStatus
+        )
         readingFileItem.title = readingPresentation.fileTitle
         readingPathItem.title = readingPresentation.pathTitle
         readingProgressItem.title = readingPresentation.progressTitle
@@ -104,6 +215,15 @@ final class MenuBarController {
         continueReadingItem.isEnabled = readingPresentation.canContinueReading && !readingPresentation.isReadingActive
         scrollingDetailItem.state = detailDisplayMode == .scrolling ? .on : .off
         pagingDetailItem.state = detailDisplayMode == .paging ? .on : .off
+        slowDetailScrollSpeedItem.state = detailScrollSpeed == .slow ? .on : .off
+        normalDetailScrollSpeedItem.state = detailScrollSpeed == .normal ? .on : .off
+        fastDetailScrollSpeedItem.state = detailScrollSpeed == .fast ? .on : .off
+        slowDetailPageSpeedItem.state = detailPageSpeed == .slow ? .on : .off
+        normalDetailPageSpeedItem.state = detailPageSpeed == .normal ? .on : .off
+        fastDetailPageSpeedItem.state = detailPageSpeed == .fast ? .on : .off
+        slowStatusBarPageSpeedItem.state = statusBarPageSpeed == .slow ? .on : .off
+        normalStatusBarPageSpeedItem.state = statusBarPageSpeed == .normal ? .on : .off
+        fastStatusBarPageSpeedItem.state = statusBarPageSpeed == .fast ? .on : .off
         slowReadingAutoPageSpeedItem.state = readingAutoPageSpeed == .slow ? .on : .off
         normalReadingAutoPageSpeedItem.state = readingAutoPageSpeed == .normal ? .on : .off
         fastReadingAutoPageSpeedItem.state = readingAutoPageSpeed == .fast ? .on : .off
@@ -116,6 +236,7 @@ final class MenuBarController {
         updateCompletionSpeechRateMenu(selectedRate: completionSpeechRate)
         updateCompletionSpeechPitchMenu(selectedPitch: completionSpeechPitch)
         exitReadingModeItem.isEnabled = readingPresentation.isReadingActive
+        statusBarContentItem.state = statusBarContentEnabled ? .on : .off
     }
 
     private func makeMenu() -> NSMenu {
@@ -123,9 +244,16 @@ final class MenuBarController {
         sessionSectionItem.isEnabled = false
         readingSectionItem.isEnabled = false
         touchBarSectionItem.isEnabled = false
+        statusBarSectionItem.isEnabled = false
 
         scrollingDetailItem.target = self
         pagingDetailItem.target = self
+        slowDetailScrollSpeedItem.target = self
+        normalDetailScrollSpeedItem.target = self
+        fastDetailScrollSpeedItem.target = self
+        slowDetailPageSpeedItem.target = self
+        normalDetailPageSpeedItem.target = self
+        fastDetailPageSpeedItem.target = self
         slowReadingAutoPageSpeedItem.target = self
         normalReadingAutoPageSpeedItem.target = self
         fastReadingAutoPageSpeedItem.target = self
@@ -135,6 +263,10 @@ final class MenuBarController {
         continueReadingItem.target = self
         exitReadingModeItem.target = self
         pauseItem.target = self
+        statusBarContentItem.target = self
+        slowStatusBarPageSpeedItem.target = self
+        normalStatusBarPageSpeedItem.target = self
+        fastStatusBarPageSpeedItem.target = self
         englishLanguageItem.target = self
         chineseLanguageItem.target = self
         refreshItem.target = self
@@ -146,11 +278,26 @@ final class MenuBarController {
         detailDisplayMenu.addItem(scrollingDetailItem)
         detailDisplayMenu.addItem(pagingDetailItem)
         detailDisplayModeItem.submenu = detailDisplayMenu
+        detailScrollSpeedItem.submenu = makeSpeedMenu(
+            slowDetailScrollSpeedItem,
+            normalDetailScrollSpeedItem,
+            fastDetailScrollSpeedItem
+        )
+        detailPageSpeedItem.submenu = makeSpeedMenu(
+            slowDetailPageSpeedItem,
+            normalDetailPageSpeedItem,
+            fastDetailPageSpeedItem
+        )
         let readingSpeedMenu = NSMenu()
         readingSpeedMenu.addItem(slowReadingAutoPageSpeedItem)
         readingSpeedMenu.addItem(normalReadingAutoPageSpeedItem)
         readingSpeedMenu.addItem(fastReadingAutoPageSpeedItem)
         readingAutoPageSpeedItem.submenu = readingSpeedMenu
+        statusBarPageSpeedItem.submenu = makeSpeedMenu(
+            slowStatusBarPageSpeedItem,
+            normalStatusBarPageSpeedItem,
+            fastStatusBarPageSpeedItem
+        )
 
         for command in MenuBarMenuPlan.visibleCommands {
             switch command {
@@ -160,6 +307,8 @@ final class MenuBarController {
                 menu.addItem(sessionItem)
             case .projectInfo:
                 menu.addItem(projectItem)
+            case .switchSession:
+                menu.addItem(sessionSwitchItem)
             case .openCurrentSession:
                 menu.addItem(openCurrentSessionItem)
             case .toggleCompletionSpeech:
@@ -171,27 +320,46 @@ final class MenuBarController {
             case .completionSpeechPitchMenu:
                 menu.addItem(completionSpeechPitchItem)
             case .readingSectionHeader:
+                guard isTouchBarAvailable else { continue }
                 menu.addItem(.separator())
                 menu.addItem(readingSectionItem)
             case .readingFileInfo:
+                guard isTouchBarAvailable else { continue }
                 menu.addItem(readingFileItem)
             case .readingPathInfo:
+                guard isTouchBarAvailable else { continue }
                 menu.addItem(readingPathItem)
             case .readingProgressInfo:
+                guard isTouchBarAvailable else { continue }
                 menu.addItem(readingProgressItem)
             case .openReadingFile:
+                guard isTouchBarAvailable else { continue }
                 menu.addItem(openReadingFileItem)
             case .continueReading:
+                guard isTouchBarAvailable else { continue }
                 menu.addItem(continueReadingItem)
             case .exitReadingMode:
+                guard isTouchBarAvailable else { continue }
                 menu.addItem(exitReadingModeItem)
             case .readingAutoPageSpeedHeader:
+                guard isTouchBarAvailable else { continue }
                 menu.addItem(readingAutoPageSpeedItem)
             case .detailDisplayHeader:
+                guard isTouchBarAvailable else { continue }
                 menu.addItem(detailDisplayModeItem)
             case .selectScrollingDetailDisplay:
                 continue
             case .selectPagingDetailDisplay:
+                continue
+            case .detailScrollSpeed:
+                guard isTouchBarAvailable else { continue }
+                menu.addItem(detailScrollSpeedItem)
+            case .selectSlowDetailScrollSpeed, .selectNormalDetailScrollSpeed, .selectFastDetailScrollSpeed:
+                continue
+            case .detailPageSpeed:
+                guard isTouchBarAvailable else { continue }
+                menu.addItem(detailPageSpeedItem)
+            case .selectSlowDetailPageSpeed, .selectNormalDetailPageSpeed, .selectFastDetailPageSpeed:
                 continue
             case .selectSlowReadingAutoPageSpeed:
                 continue
@@ -200,11 +368,23 @@ final class MenuBarController {
             case .selectFastReadingAutoPageSpeed:
                 continue
             case .touchBarSectionHeader:
+                guard isTouchBarAvailable else { continue }
                 menu.addItem(.separator())
                 menu.addItem(touchBarSectionItem)
             case .touchBarModeInfo:
-                menu.addItem(touchBarModeItem)
+                if isTouchBarAvailable {
+                    menu.addItem(touchBarModeItem)
+                }
+            case .statusBarSectionHeader:
+                menu.addItem(.separator())
+                menu.addItem(statusBarSectionItem)
+            case .toggleStatusBarContent:
+                menu.addItem(statusBarContentItem)
                 menu.addItem(languageItem)
+            case .statusBarPageSpeed:
+                menu.addItem(statusBarPageSpeedItem)
+            case .selectSlowStatusBarPageSpeed, .selectNormalStatusBarPageSpeed, .selectFastStatusBarPageSpeed:
+                continue
             case .togglePause:
                 menu.addItem(pauseItem)
             case .refreshNow:
@@ -219,12 +399,33 @@ final class MenuBarController {
         return menu
     }
 
+    private func makeSpeedMenu(_ slow: NSMenuItem, _ normal: NSMenuItem, _ fast: NSMenuItem) -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(slow)
+        menu.addItem(normal)
+        menu.addItem(fast)
+        return menu
+    }
+
     @objc private func togglePause() {
         delegate?.menuBarDidTogglePause()
     }
 
+    @objc private func toggleStatusBarContent() {
+        delegate?.menuBarDidToggleStatusBarContent()
+    }
+
     @objc private func openCurrentSession() {
         delegate?.menuBarDidRequestOpenCurrentSession()
+    }
+
+    @objc private func selectAutomaticSession() {
+        delegate?.menuBarDidSelectAutomaticSession()
+    }
+
+    @objc private func selectSession(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        delegate?.menuBarDidSelectSession(url: url)
     }
 
     @objc private func toggleCompletionSpeech() {
@@ -271,6 +472,42 @@ final class MenuBarController {
         delegate?.menuBarDidSelectDetailDisplayMode(.paging)
     }
 
+    @objc private func selectSlowDetailScrollSpeed() {
+        delegate?.menuBarDidSelectDetailScrollSpeed(.slow)
+    }
+
+    @objc private func selectNormalDetailScrollSpeed() {
+        delegate?.menuBarDidSelectDetailScrollSpeed(.normal)
+    }
+
+    @objc private func selectFastDetailScrollSpeed() {
+        delegate?.menuBarDidSelectDetailScrollSpeed(.fast)
+    }
+
+    @objc private func selectSlowDetailPageSpeed() {
+        delegate?.menuBarDidSelectDetailPageSpeed(.slow)
+    }
+
+    @objc private func selectNormalDetailPageSpeed() {
+        delegate?.menuBarDidSelectDetailPageSpeed(.normal)
+    }
+
+    @objc private func selectFastDetailPageSpeed() {
+        delegate?.menuBarDidSelectDetailPageSpeed(.fast)
+    }
+
+    @objc private func selectSlowStatusBarPageSpeed() {
+        delegate?.menuBarDidSelectStatusBarPageSpeed(.slow)
+    }
+
+    @objc private func selectNormalStatusBarPageSpeed() {
+        delegate?.menuBarDidSelectStatusBarPageSpeed(.normal)
+    }
+
+    @objc private func selectFastStatusBarPageSpeed() {
+        delegate?.menuBarDidSelectStatusBarPageSpeed(.fast)
+    }
+
     @objc private func selectSlowReadingAutoPageSpeed() {
         delegate?.menuBarDidSelectReadingAutoPageSpeed(.slow)
     }
@@ -295,13 +532,134 @@ final class MenuBarController {
         delegate?.menuBarDidRequestRefresh()
     }
 
-    private static func statusBarIcon() -> NSImage {
-        let size = NSSize(width: 22, height: 18)
+    private func updateStatusBarContent(
+        isEnabled: Bool,
+        text: String,
+        sessionID: String?,
+        language: DisplayLanguage,
+        pageSpeed: DetailDisplaySpeed
+    ) {
+        guard isEnabled else {
+            stopStatusBarPageTimer()
+            statusBarContentKey = ""
+            applyStatusBarIcon()
+            return
+        }
+
+        let contentKey = "\(sessionID ?? "-")|\(text)"
+        let pageSpeedChanged = statusBarPageSpeed != pageSpeed
+        statusBarPageSpeed = pageSpeed
+        if statusBarContentKey != contentKey || pageSpeedChanged {
+            statusBarContentKey = contentKey
+            statusBarContentPages = statusBarContentPages(for: text)
+            statusBarContentPageIndex = 0
+            startStatusBarPageTimer()
+        }
+        applyStatusBarContentPage(language: language)
+    }
+
+    private func applyStatusBarIcon() {
+        guard let button = statusItem.button else { return }
+        statusItem.menu = statusMenu
+        button.target = nil
+        button.action = nil
+        button.title = ""
+        button.image = Self.statusBarIcon(badgeColor: statusBarBadge.color)
+        button.imagePosition = .imageOnly
+        button.toolTip = statusBarBadge.label(language: displayLanguage)
+    }
+
+    private func applyStatusBarContentPage(language: DisplayLanguage? = nil) {
+        guard let button = statusItem.button else { return }
+        let currentLanguage = language ?? displayLanguage
+        let page = statusBarContentPages[statusBarContentPageIndex]
+        statusItem.menu = statusMenu
+        button.target = nil
+        button.action = nil
+        button.title = page
+        button.image = Self.statusBarIcon(badgeColor: statusBarBadge.color)
+        button.imagePosition = .imageRight
+        button.font = NSFont.menuBarFont(ofSize: 13)
+        button.lineBreakMode = .byTruncatingTail
+        let status = statusBarBadge.label(language: currentLanguage)
+        button.toolTip = statusBarContentPages.count > 1
+            ? "\(status) · \(statusBarContentPageIndex + 1)/\(statusBarContentPages.count)"
+            : status
+    }
+
+    private func startStatusBarPageTimer() {
+        stopStatusBarPageTimer()
+        guard statusBarContentPages.count > 1 else { return }
+        statusBarPageTimer = Timer.scheduledTimer(
+            withTimeInterval: statusBarPageSpeed.pageIntervalSeconds,
+            repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.statusBarContentPageIndex = TouchBarPagePolicy.nextPageIndex(
+                    currentIndex: self.statusBarContentPageIndex,
+                    pageCount: self.statusBarContentPages.count
+                )
+                self.applyStatusBarContentPage()
+            }
+        }
+    }
+
+    private func stopStatusBarPageTimer() {
+        statusBarPageTimer?.invalidate()
+        statusBarPageTimer = nil
+    }
+
+    private func statusBarContentPages(for text: String) -> [String] {
+        let font = NSFont.menuBarFont(ofSize: 13)
+        return TouchBarPagePolicy.pages(for: text, maxWidth: 272) { page in
+            (page as NSString).size(withAttributes: [.font: font]).width
+        }
+    }
+
+    private func updateSessionSwitchMenu(
+        sessions: [CodexSessionFile],
+        selectionMode: CodexSessionSelectionMode
+    ) {
+        let recentSessions = Array(sessions.prefix(10))
+        let signature = CodexSessionSelectorSignature.value(
+            sessions: recentSessions,
+            selectionMode: selectionMode
+        )
+        guard signature != sessionSwitchMenuSignature else { return }
+        sessionSwitchMenuSignature = signature
+
+        let menu = NSMenu()
+        let automaticItem = NSMenuItem(title: "AUTO", action: #selector(selectAutomaticSession), keyEquivalent: "")
+        automaticItem.target = self
+        automaticItem.state = selectionMode == .automaticLatest ? .on : .off
+        menu.addItem(automaticItem)
+
+        if !recentSessions.isEmpty {
+            menu.addItem(.separator())
+        }
+
+        for session in recentSessions {
+            let item = NSMenuItem(title: session.displayName, action: #selector(selectSession(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = session.url
+            if case .locked(let url) = selectionMode, url == session.url {
+                item.state = .on
+            }
+            menu.addItem(item)
+        }
+
+        sessionSwitchItem.submenu = menu
+        sessionSwitchItem.isEnabled = true
+    }
+
+    private static func statusBarIcon(badgeColor: NSColor? = nil) -> NSImage {
+        let size = NSSize(width: 24, height: 18)
         let image = NSImage(size: size)
         image.lockFocus()
 
-        NSColor.black.setStroke()
-        NSColor.black.setFill()
+        NSColor.labelColor.setStroke()
+        NSColor.labelColor.setFill()
 
         let barPath = NSBezierPath(roundedRect: NSRect(x: 0.8, y: 3, width: 20.4, height: 12), xRadius: 6, yRadius: 6)
         barPath.lineWidth = 1.4
@@ -315,8 +673,15 @@ final class MenuBarController {
             NSBezierPath(ovalIn: NSRect(x: x, y: 7.05, width: dotDiameter, height: dotDiameter)).fill()
         }
 
+        if let badgeColor {
+            NSColor.controlBackgroundColor.setFill()
+            NSBezierPath(ovalIn: NSRect(x: 17.1, y: 0.1, width: 6.2, height: 6.2)).fill()
+            badgeColor.setFill()
+            NSBezierPath(ovalIn: NSRect(x: 18.1, y: 1.1, width: 4.2, height: 4.2)).fill()
+        }
+
         image.unlockFocus()
-        image.isTemplate = true
+        image.isTemplate = badgeColor == nil
         return image
     }
 
@@ -423,6 +788,9 @@ final class MenuBarController {
         state: CodexDisplayState,
         paused: Bool,
         detailDisplayMode: TouchBarDetailDisplayMode,
+        detailScrollSpeed: DetailDisplaySpeed,
+        detailPageSpeed: DetailDisplaySpeed,
+        statusBarPageSpeed: DetailDisplaySpeed,
         readingAutoPageSpeed: ReadingAutoPageSpeed,
         alwaysOnStatus: String
     ) {
@@ -430,12 +798,27 @@ final class MenuBarController {
         sessionSectionItem.title = isEnglish ? "Codex Session" : "Codex 会话"
         sessionItem.title = "\(isEnglish ? "Session" : "会话")\(localizedLabelSeparator())\(state.sessionId ?? "-")"
         projectItem.title = "\(isEnglish ? "Project" : "项目")\(localizedLabelSeparator())\(state.projectPath.isEmpty ? "-" : state.projectPath)"
+        sessionSwitchItem.title = isEnglish ? "Switch Session" : "切换会话"
         readingSectionItem.title = isEnglish ? "Reading" : "阅读"
         touchBarSectionItem.title = "Touch Bar"
         touchBarModeItem.title = "Touch Bar\(localizedLabelSeparator())\(alwaysOnStatus)"
+        statusBarSectionItem.title = isEnglish ? "Menu Bar" : "状态栏"
+        statusBarContentItem.title = isEnglish ? "Show Content in Menu Bar" : "在状态栏显示正文"
         detailDisplayModeItem.title = "\(isEnglish ? "Detail Display" : "正文显示")\(localizedLabelSeparator())\(localizedDetailDisplayMode(detailDisplayMode))"
         scrollingDetailItem.title = localizedDetailDisplayMode(.scrolling)
         pagingDetailItem.title = localizedDetailDisplayMode(.paging)
+        detailScrollSpeedItem.title = "\(isEnglish ? "Scrolling Speed" : "滚动速度")\(localizedLabelSeparator())\(localizedDetailDisplaySpeed(detailScrollSpeed))"
+        slowDetailScrollSpeedItem.title = localizedDetailDisplaySpeed(.slow)
+        normalDetailScrollSpeedItem.title = localizedDetailDisplaySpeed(.normal)
+        fastDetailScrollSpeedItem.title = localizedDetailDisplaySpeed(.fast)
+        detailPageSpeedItem.title = "\(isEnglish ? "Paging Speed" : "翻页速度")\(localizedLabelSeparator())\(localizedDetailDisplaySpeed(detailPageSpeed))"
+        slowDetailPageSpeedItem.title = localizedDetailDisplaySpeed(.slow)
+        normalDetailPageSpeedItem.title = localizedDetailDisplaySpeed(.normal)
+        fastDetailPageSpeedItem.title = localizedDetailDisplaySpeed(.fast)
+        statusBarPageSpeedItem.title = "\(isEnglish ? "Paging Speed" : "翻页速度")\(localizedLabelSeparator())\(localizedDetailDisplaySpeed(statusBarPageSpeed))"
+        slowStatusBarPageSpeedItem.title = localizedDetailDisplaySpeed(.slow)
+        normalStatusBarPageSpeedItem.title = localizedDetailDisplaySpeed(.normal)
+        fastStatusBarPageSpeedItem.title = localizedDetailDisplaySpeed(.fast)
         readingAutoPageSpeedItem.title = "\(isEnglish ? "Reading Speed" : "阅读速度")\(localizedLabelSeparator())\(localizedReadingAutoPageSpeed(readingAutoPageSpeed))"
         slowReadingAutoPageSpeedItem.title = localizedReadingAutoPageSpeed(.slow)
         normalReadingAutoPageSpeedItem.title = localizedReadingAutoPageSpeed(.normal)
@@ -468,6 +851,17 @@ final class MenuBarController {
     }
 
     private func localizedReadingAutoPageSpeed(_ speed: ReadingAutoPageSpeed) -> String {
+        switch (displayLanguage, speed) {
+        case (.english, .slow): return "Slow"
+        case (.english, .normal): return "Normal"
+        case (.english, .fast): return "Fast"
+        case (.simplifiedChinese, .slow): return "慢"
+        case (.simplifiedChinese, .normal): return "正常"
+        case (.simplifiedChinese, .fast): return "快"
+        }
+    }
+
+    private func localizedDetailDisplaySpeed(_ speed: DetailDisplaySpeed) -> String {
         switch (displayLanguage, speed) {
         case (.english, .slow): return "Slow"
         case (.english, .normal): return "Normal"

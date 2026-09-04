@@ -10,9 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     private lazy var reducer = DisplayStateReducer(parser: parser)
     private let rotation = RotatingDetailSelector()
     private var settings = TouchBarSettings()
-    private let touchBarController = TouchBarController()
-    private let alwaysOnPresenter = PrivateTouchBarPresenter()
-    private lazy var menuBarController = MenuBarController()
+    private let touchBarAvailable = TouchBarHardwareCapability.isAvailable
+    private lazy var touchBarController: TouchBarController? = touchBarAvailable ? TouchBarController() : nil
+    private lazy var alwaysOnPresenter: PrivateTouchBarPresenter? = touchBarAvailable ? PrivateTouchBarPresenter() : nil
+    private lazy var menuBarController = MenuBarController(isTouchBarAvailable: touchBarAvailable)
     private let fileEventQueue = DispatchQueue(label: "com.local.codex-touch-bar.file-events")
     private let sessionsRootURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".codex/sessions", isDirectory: true)
@@ -36,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         menuBarController.delegate = self
-        touchBarController.delegate = self
+        touchBarController?.delegate = self
         render()
         applyPresentationMode()
         startTimers()
@@ -45,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
 
     func applicationWillTerminate(_ notification: Notification) {
         persistReadingProgress()
-        alwaysOnPresenter.dismiss()
+        alwaysOnPresenter?.dismiss()
         sessionsDirectoryMonitor?.stop()
         selectedSessionMonitor?.stop()
     }
@@ -181,7 +182,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
 
     private func render() {
         let voiceOptions = completionSpeechVoiceOptions()
-        if let readingDocument {
+        let codexDetail = rotation.detailPresentation(
+            for: state,
+            idleTargetName: idleTargetName(),
+            language: settings.displayLanguage
+        )
+        if let readingDocument, let touchBarController {
             let progress = touchBarController.applyReading(
                 document: readingDocument,
                 requestedPageIndex: readingPageIndex,
@@ -191,16 +197,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
             readingPageIndex = progress.pageIndex
             readingPageCount = progress.pageCount
             persistReadingProgress()
-        } else {
+        } else if let touchBarController {
             touchBarController.apply(
                 state: state,
-                detail: rotation.detailPresentation(
-                    for: state,
-                    idleTargetName: idleTargetName(),
-                    language: settings.displayLanguage
-                ),
+                detail: codexDetail,
                 language: settings.displayLanguage,
                 displayMode: settings.detailDisplayMode,
+                detailScrollSpeed: settings.detailScrollSpeed,
+                detailPageSpeed: settings.detailPageSpeed,
                 sessions: availableSessions,
                 selectionMode: sessionSelectionMode,
                 completionSpeechEnabled: settings.completionSpeechEnabled,
@@ -209,6 +213,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
                 completionSpeechRate: settings.completionSpeechRate,
                 completionSpeechPitch: settings.completionSpeechPitch
             )
+            readingPageCount = 0
+        } else {
             readingPageCount = 0
         }
         let progressTitle = ReadingProgressPresentationPolicy.presentation(
@@ -219,10 +225,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
         menuBarController.apply(
             state: state,
             language: settings.displayLanguage,
+            statusBarContentEnabled: settings.statusBarContentEnabled,
+            statusBarDetail: codexDetail,
+            sessions: availableSessions,
+            sessionSelectionMode: sessionSelectionMode,
             paused: paused,
             detailDisplayMode: settings.detailDisplayMode,
+            detailScrollSpeed: settings.detailScrollSpeed,
+            detailPageSpeed: settings.detailPageSpeed,
+            statusBarPageSpeed: settings.statusBarPageSpeed,
             readingAutoPageSpeed: settings.readingAutoPageSpeed,
-            alwaysOnStatus: alwaysOnPresenter.status.menuText(language: settings.displayLanguage),
+            alwaysOnStatus: alwaysOnPresenter?.status.menuText(language: settings.displayLanguage) ?? "",
             readingFileName: readingDocument?.fileName,
             readingFilePath: readingDocument?.fileURL.path,
             readingProgressTitle: progressTitle,
@@ -240,8 +253,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
         render()
     }
 
+    func menuBarDidToggleStatusBarContent() {
+        settings.statusBarContentEnabled.toggle()
+        render()
+    }
+
     func menuBarDidRequestOpenCurrentSession() {
         openCurrentSessionInDesktop()
+    }
+
+    func menuBarDidSelectAutomaticSession() {
+        touchBarDidSelectAutomaticSession()
+    }
+
+    func menuBarDidSelectSession(url: URL) {
+        touchBarDidSelectSession(url: url)
     }
 
     func menuBarDidRequestOpenReadingFile() {
@@ -264,31 +290,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     func menuBarDidToggleCompletionSpeech() {
         settings.completionSpeechEnabled.toggle()
         if !settings.completionSpeechEnabled {
-            touchBarController.stopCompletionSpeech()
+            touchBarController?.stopCompletionSpeech()
         }
         render()
     }
 
     func menuBarDidSelectCompletionSpeechVoice(identifier: String?) {
         settings.completionSpeechVoiceIdentifier = identifier
-        touchBarController.stopCompletionSpeech()
+        touchBarController?.stopCompletionSpeech()
         render()
     }
 
     func menuBarDidSelectCompletionSpeechRate(_ rate: CompletionSpeechRate) {
         settings.completionSpeechRate = rate
-        touchBarController.stopCompletionSpeech()
+        touchBarController?.stopCompletionSpeech()
         render()
     }
 
     func menuBarDidSelectCompletionSpeechPitch(_ pitch: CompletionSpeechPitch) {
         settings.completionSpeechPitch = pitch
-        touchBarController.stopCompletionSpeech()
+        touchBarController?.stopCompletionSpeech()
         render()
     }
 
     func menuBarDidSelectDetailDisplayMode(_ mode: TouchBarDetailDisplayMode) {
         settings.detailDisplayMode = mode
+        render()
+    }
+
+    func menuBarDidSelectDetailScrollSpeed(_ speed: DetailDisplaySpeed) {
+        settings.detailScrollSpeed = speed
+        render()
+    }
+
+    func menuBarDidSelectDetailPageSpeed(_ speed: DetailDisplaySpeed) {
+        settings.detailPageSpeed = speed
+        render()
+    }
+
+    func menuBarDidSelectStatusBarPageSpeed(_ speed: DetailDisplaySpeed) {
+        settings.statusBarPageSpeed = speed
         render()
     }
 
@@ -328,11 +369,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
 
     func touchBarDidRequestIdleCurrentSession() {
         state = idleDisplayStateKeepingCurrentSession()
-        touchBarController.stopCompletionSpeech()
+        touchBarController?.stopCompletionSpeech()
         render()
     }
 
     private func applyPresentationMode() {
+        guard let alwaysOnPresenter, let touchBarController else { return }
         _ = alwaysOnPresenter.present(touchBarController.touchBar)
         render()
     }
@@ -423,8 +465,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
 
     private func persistReadingProgress() {
         guard let readingDocument else { return }
-        let progress = touchBarController.currentReadingProgress()
-        let pageIndex = progress.pageCount > 0 ? progress.pageIndex : readingPageIndex
+        let progress = touchBarController?.currentReadingProgress()
+        let pageIndex: Int
+        if let progress, progress.pageCount > 0 {
+            pageIndex = progress.pageIndex
+        } else {
+            pageIndex = readingPageIndex
+        }
         settings.lastReadingFilePath = readingDocument.fileURL.path
         settings.setReadingPageIndex(pageIndex, forFilePath: readingDocument.fileURL.path)
     }

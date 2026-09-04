@@ -24,7 +24,8 @@ public enum TouchBarAutoScrollPolicy {
         viewportWidth: Double,
         elapsedSeconds: Double,
         now: Double,
-        pauseUntil: Double?
+        pauseUntil: Double?,
+        pixelsPerSecond: Double = Self.pixelsPerSecond
     ) -> TouchBarAutoScrollStep {
         guard contentWidth > viewportWidth else {
             return TouchBarAutoScrollStep(offset: 0, wrappedToStart: false)
@@ -52,7 +53,8 @@ public enum TouchBarAutoScrollPolicy {
         viewportWidth: Double,
         elapsedSeconds: Double,
         now: Double,
-        pauseUntil: Double?
+        pauseUntil: Double?,
+        pixelsPerSecond: Double = Self.pixelsPerSecond
     ) -> Double {
         nextStep(
             currentOffset: currentOffset,
@@ -61,7 +63,8 @@ public enum TouchBarAutoScrollPolicy {
             viewportWidth: viewportWidth,
             elapsedSeconds: elapsedSeconds,
             now: now,
-            pauseUntil: pauseUntil
+            pauseUntil: pauseUntil,
+            pixelsPerSecond: pixelsPerSecond
         ).offset
     }
 

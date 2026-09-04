@@ -19,9 +19,35 @@ public enum TouchBarDetailDisplayMode: String, Equatable {
     }
 }
 
+public enum DetailDisplaySpeed: String, CaseIterable, Equatable, Sendable {
+    case slow
+    case normal
+    case fast
+
+    public var scrollPixelsPerSecond: Double {
+        switch self {
+        case .slow: return 36
+        case .normal: return 56
+        case .fast: return 84
+        }
+    }
+
+    public var pageIntervalSeconds: TimeInterval {
+        switch self {
+        case .slow: return 5.0
+        case .normal: return 3.0
+        case .fast: return 1.5
+        }
+    }
+}
+
 public struct TouchBarSettings {
     private static let displayLanguageKey = "display.language"
+    private static let statusBarContentEnabledKey = "statusBar.contentEnabled"
+    private static let statusBarPageSpeedKey = "statusBar.pageSpeed"
     private static let detailDisplayModeKey = "touchBar.detailDisplayMode"
+    private static let detailScrollSpeedKey = "touchBar.detailScrollSpeed"
+    private static let detailPageSpeedKey = "touchBar.detailPageSpeed"
     private static let completionSpeechEnabledKey = "completion.speechEnabled"
     private static let completionSpeechVoiceIdentifierKey = "completion.speechVoiceIdentifier"
     private static let completionSpeechRateKey = "completion.speechRate"
@@ -48,6 +74,22 @@ public struct TouchBarSettings {
         }
     }
 
+    public var statusBarContentEnabled: Bool {
+        get { defaults.bool(forKey: Self.statusBarContentEnabledKey) }
+        nonmutating set { defaults.set(newValue, forKey: Self.statusBarContentEnabledKey) }
+    }
+
+    public var statusBarPageSpeed: DetailDisplaySpeed {
+        get {
+            guard let rawValue = defaults.string(forKey: Self.statusBarPageSpeedKey),
+                  let speed = DetailDisplaySpeed(rawValue: rawValue) else {
+                return .normal
+            }
+            return speed
+        }
+        nonmutating set { defaults.set(newValue.rawValue, forKey: Self.statusBarPageSpeedKey) }
+    }
+
     public var detailDisplayMode: TouchBarDetailDisplayMode {
         get {
             guard let rawValue = defaults.string(forKey: Self.detailDisplayModeKey),
@@ -59,6 +101,28 @@ public struct TouchBarSettings {
         nonmutating set {
             defaults.set(newValue.rawValue, forKey: Self.detailDisplayModeKey)
         }
+    }
+
+    public var detailScrollSpeed: DetailDisplaySpeed {
+        get {
+            guard let rawValue = defaults.string(forKey: Self.detailScrollSpeedKey),
+                  let speed = DetailDisplaySpeed(rawValue: rawValue) else {
+                return .normal
+            }
+            return speed
+        }
+        nonmutating set { defaults.set(newValue.rawValue, forKey: Self.detailScrollSpeedKey) }
+    }
+
+    public var detailPageSpeed: DetailDisplaySpeed {
+        get {
+            guard let rawValue = defaults.string(forKey: Self.detailPageSpeedKey),
+                  let speed = DetailDisplaySpeed(rawValue: rawValue) else {
+                return .normal
+            }
+            return speed
+        }
+        nonmutating set { defaults.set(newValue.rawValue, forKey: Self.detailPageSpeedKey) }
     }
 
     public var readingAutoPageSpeed: ReadingAutoPageSpeed {

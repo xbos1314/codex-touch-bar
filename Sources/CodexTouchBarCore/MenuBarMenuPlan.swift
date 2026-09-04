@@ -2,6 +2,7 @@ public enum MenuBarCommand: Equatable, Sendable {
     case sessionSectionHeader
     case sessionInfo
     case projectInfo
+    case switchSession
     case openCurrentSession
     case toggleCompletionSpeech
     case completionSpeechVoiceMenu
@@ -20,9 +21,23 @@ public enum MenuBarCommand: Equatable, Sendable {
     case selectFastReadingAutoPageSpeed
     case touchBarSectionHeader
     case touchBarModeInfo
+    case statusBarSectionHeader
+    case toggleStatusBarContent
     case detailDisplayHeader
     case selectScrollingDetailDisplay
     case selectPagingDetailDisplay
+    case detailScrollSpeed
+    case selectSlowDetailScrollSpeed
+    case selectNormalDetailScrollSpeed
+    case selectFastDetailScrollSpeed
+    case detailPageSpeed
+    case selectSlowDetailPageSpeed
+    case selectNormalDetailPageSpeed
+    case selectFastDetailPageSpeed
+    case statusBarPageSpeed
+    case selectSlowStatusBarPageSpeed
+    case selectNormalStatusBarPageSpeed
+    case selectFastStatusBarPageSpeed
     case togglePause
     case refreshNow
     case showTouchBarHost
@@ -34,6 +49,7 @@ public enum MenuBarMenuPlan {
         .sessionSectionHeader,
         .sessionInfo,
         .projectInfo,
+        .switchSession,
         .openCurrentSession,
         .toggleCompletionSpeech,
         .completionSpeechVoiceMenu,
@@ -55,6 +71,20 @@ public enum MenuBarMenuPlan {
         .detailDisplayHeader,
         .selectScrollingDetailDisplay,
         .selectPagingDetailDisplay,
+        .detailScrollSpeed,
+        .selectSlowDetailScrollSpeed,
+        .selectNormalDetailScrollSpeed,
+        .selectFastDetailScrollSpeed,
+        .detailPageSpeed,
+        .selectSlowDetailPageSpeed,
+        .selectNormalDetailPageSpeed,
+        .selectFastDetailPageSpeed,
+        .statusBarSectionHeader,
+        .toggleStatusBarContent,
+        .statusBarPageSpeed,
+        .selectSlowStatusBarPageSpeed,
+        .selectNormalStatusBarPageSpeed,
+        .selectFastStatusBarPageSpeed,
         .togglePause,
         .refreshNow,
         .quit

@@ -59,6 +59,8 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
     private var sessionSelectionMode: CodexSessionSelectionMode = .automaticLatest
     private var isShowingSessionSelector = false
     private var detailDisplayMode: TouchBarDetailDisplayMode = .scrolling
+    private var detailScrollSpeed: DetailDisplaySpeed = .normal
+    private var detailPageSpeed: DetailDisplaySpeed = .normal
     private var detailPages: [String] = []
     private var detailPageIndex = 0
     private var lastItemIdentifiers: [NSTouchBarItem.Identifier] = []
@@ -132,6 +134,8 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         detail: CodexDetailPresentation,
         language: DisplayLanguage,
         displayMode: TouchBarDetailDisplayMode,
+        detailScrollSpeed: DetailDisplaySpeed,
+        detailPageSpeed: DetailDisplaySpeed,
         sessions: [CodexSessionFile],
         selectionMode: CodexSessionSelectionMode,
         completionSpeechEnabled: Bool,
@@ -207,6 +211,8 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
             || lastRendered?.project != project
             || lastRendered?.detail.text != detail.text
         let modeChanged = detailDisplayMode != displayMode
+        let scrollSpeedChanged = self.detailScrollSpeed != detailScrollSpeed
+        let pageSpeedChanged = self.detailPageSpeed != detailPageSpeed
         let selectorChanged = lastSessionSelectorSignature != sessionSelectorSignature
         let currentPagingMaxWidth = displayMode == .paging ? detailPagingMaxWidth() : 0
         let pagingWidthChanged = abs(detailPagesMaxWidth - currentPagingMaxWidth) > 2
@@ -217,6 +223,8 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
                 || lastRendered?.canOpenSession != canOpenSession
                 || lastRendered?.canDismissCompletion != canDismissCompletion
                 || modeChanged
+                || scrollSpeedChanged
+                || pageSpeedChanged
                 || selectorChanged
                 || pagingWidthChanged
                 || leavingReadingMode
@@ -228,6 +236,8 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
             detailAutoAdvanceSuppressed = false
         }
         detailDisplayMode = displayMode
+        self.detailScrollSpeed = detailScrollSpeed
+        self.detailPageSpeed = detailPageSpeed
         canOpenCurrentSession = canOpenSession
         canDismissCompletedSession = canDismissCompletion
         currentBasePetMood = basePetMood
@@ -269,7 +279,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
                 }
             }
             autoScrollPauseUntil = nil
-            if textChanged || modeChanged {
+            if textChanged || modeChanged || pageSpeedChanged {
                 lastPageAdvanceAt = Date().timeIntervalSinceReferenceDate
                 scheduleNextPageAdvance()
             }
@@ -1203,7 +1213,11 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
             return
         }
         let now = Date().timeIntervalSinceReferenceDate
-        let delay = TouchBarPagePolicy.automaticAdvanceDelay(now: now, lastAdvanceAt: lastPageAdvanceAt)
+        let delay = TouchBarPagePolicy.automaticAdvanceDelay(
+            now: now,
+            lastAdvanceAt: lastPageAdvanceAt,
+            interval: detailPageSpeed.pageIntervalSeconds
+        )
         let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.advanceDetailPageAutomatically()
@@ -1240,7 +1254,8 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
             viewportWidth: viewportWidth,
             elapsedSeconds: now.timeIntervalSince(lastAutoScrollDate),
             now: now.timeIntervalSinceReferenceDate,
-            pauseUntil: autoScrollPauseUntil
+            pauseUntil: autoScrollPauseUntil,
+            pixelsPerSecond: detailScrollSpeed.scrollPixelsPerSecond
         )
         self.lastAutoScrollDate = now
 
