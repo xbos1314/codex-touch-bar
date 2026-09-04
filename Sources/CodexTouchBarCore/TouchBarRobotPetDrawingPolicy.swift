@@ -1,5 +1,6 @@
 public enum TouchBarRobotPetTone: Equatable, Sendable {
     case idle
+    case thinking
     case running
     case approval
     case completed
@@ -11,6 +12,7 @@ public enum TouchBarRobotPetTone: Equatable, Sendable {
 public enum TouchBarRobotPetExpression: Equatable, Sendable {
     case neutral
     case blink
+    case thinking
     case working
     case happy
     case failed
@@ -158,6 +160,17 @@ public enum TouchBarRobotPetDrawingPolicy {
         }
     }
 
+    private static func thinkingFaceExpression(for frameIndex: Int) -> TouchBarRobotPetFaceExpression {
+        switch frameIndex % 18 {
+        case 6, 8:
+            return TouchBarRobotPetFaceExpression(leftEye: .circle, rightEye: .smallCircle, mouth: .flat)
+        case 7:
+            return TouchBarRobotPetFaceExpression(leftEye: .smallCircle, rightEye: .circle, mouth: .flat)
+        default:
+            return blinkFaceExpression(for: frameIndex)
+        }
+    }
+
     public static func style(for mood: TouchBarPetMood, frameIndex: Int) -> TouchBarRobotPetStyle {
         let safeFrame = max(0, frameIndex)
         let tone: TouchBarRobotPetTone
@@ -171,6 +184,11 @@ public enum TouchBarRobotPetDrawingPolicy {
             expression = safeFrame % 36 == 26 ? .blink : .neutral
             verticalOffset = 0
             faceExpression = blinkFaceExpression(for: safeFrame)
+        case .thinking:
+            tone = .thinking
+            expression = .thinking
+            verticalOffset = [0, 0.1, 0.2, 0.3, 0.2, 0.1, 0, -0.1][safeFrame % 8]
+            faceExpression = thinkingFaceExpression(for: safeFrame)
         case .running:
             tone = .running
             expression = .working

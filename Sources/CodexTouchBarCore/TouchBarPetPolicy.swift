@@ -2,6 +2,7 @@ import Foundation
 
 public enum TouchBarPetMood: Equatable, Sendable {
     case idle
+    case thinking
     case running
     case approval
     case completed
@@ -28,6 +29,10 @@ public enum TouchBarPetPolicy {
             return .approval
         }
 
+        if state.status == .thinking || isRunningThinking(state.latestActivity) {
+            return .thinking
+        }
+
         if state.isTaskRunning || isRunning(state) {
             return .running
         }
@@ -50,5 +55,9 @@ public enum TouchBarPetPolicy {
 
     private static func isRunningApproval(_ activity: CodexActivity?) -> Bool {
         activity?.kind == .approval && activity?.status == .running
+    }
+
+    private static func isRunningThinking(_ activity: CodexActivity?) -> Bool {
+        activity?.kind == .thinking && activity?.status == .running
     }
 }

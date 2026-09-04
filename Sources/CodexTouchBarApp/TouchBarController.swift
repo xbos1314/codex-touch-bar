@@ -1461,6 +1461,8 @@ private final class TouchBarPetView: NSView {
         switch tone {
         case .idle:
             return NSColor(calibratedRed: 0.25, green: 0.36, blue: 0.48, alpha: 0.28)
+        case .thinking:
+            return NSColor.systemPurple.withAlphaComponent(0.24)
         case .running:
             return NSColor.systemBlue.withAlphaComponent(0.34)
         case .approval:
@@ -1480,6 +1482,8 @@ private final class TouchBarPetView: NSView {
         switch tone {
         case .idle:
             return NSColor(calibratedRed: 0.46, green: 0.62, blue: 0.8, alpha: 0.9)
+        case .thinking:
+            return NSColor.systemPurple.withAlphaComponent(0.82)
         case .running:
             return .systemBlue
         case .approval:
