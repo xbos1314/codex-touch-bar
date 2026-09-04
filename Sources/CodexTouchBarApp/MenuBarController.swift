@@ -677,7 +677,7 @@ final class MenuBarController {
            let resetsAt = snapshot.mainResetsAt {
             let label = isEnglish ? "Main quota" : "主额度"
             let used = isEnglish ? "\(usedPercent)% used" : "已用 \(usedPercent)%"
-            let reset = isEnglish ? "Resets \(localizedQuotaDate(resetsAt, language: language))" : "重置于 \(localizedQuotaDate(resetsAt, language: language))"
+            let reset = isEnglish ? "Resets \(localizedQuotaDate(resetsAt, language: language))" : "重置时间：\(localizedQuotaDate(resetsAt, language: language))"
             quotaMainItem.title = "\(label)\(separator)\(used) · \(reset)"
         } else {
             quotaMainItem.title = "\(isEnglish ? "Main quota" : "主额度")\(separator)\(unavailable)"
