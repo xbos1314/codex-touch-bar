@@ -83,6 +83,10 @@ final class MenuBarController {
     weak var delegate: MenuBarControllerDelegate?
     private let isTouchBarAvailable: Bool
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private let quotaSectionItem = NSMenuItem(title: "Quota", action: nil, keyEquivalent: "")
+    private let quotaSubscriptionItem = NSMenuItem(title: "Subscription: Unavailable", action: nil, keyEquivalent: "")
+    private let quotaMainItem = NSMenuItem(title: "Main quota: Unavailable", action: nil, keyEquivalent: "")
+    private let quotaResetCreditsItem = NSMenuItem(title: "Available resets: Unavailable", action: nil, keyEquivalent: "")
     private let sessionSectionItem = NSMenuItem(title: "Codex Session", action: nil, keyEquivalent: "")
     private let sessionItem = NSMenuItem(title: "Session: -", action: nil, keyEquivalent: "")
     private let projectItem = NSMenuItem(title: "Project: -", action: nil, keyEquivalent: "")
@@ -151,6 +155,7 @@ final class MenuBarController {
 
     func apply(
         state: CodexDisplayState,
+        quotaSnapshot: CodexQuotaSnapshot,
         language: DisplayLanguage,
         statusBarContentEnabled: Bool,
         statusBarContentText: String,
@@ -190,6 +195,7 @@ final class MenuBarController {
             language: language,
             pageSpeed: statusBarPageSpeed
         )
+        updateQuotaItems(snapshot: quotaSnapshot, language: language)
         updateSessionSwitchMenu(sessions: sessions, selectionMode: sessionSelectionMode)
         let readingPresentation = ReadingMenuPresentationPolicy.presentation(
             fileName: readingFileName,
@@ -243,6 +249,10 @@ final class MenuBarController {
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
+        quotaSectionItem.isEnabled = false
+        quotaSubscriptionItem.isEnabled = false
+        quotaMainItem.isEnabled = false
+        quotaResetCreditsItem.isEnabled = false
         sessionSectionItem.isEnabled = false
         readingSectionItem.isEnabled = false
         touchBarSectionItem.isEnabled = false
@@ -303,6 +313,15 @@ final class MenuBarController {
 
         for command in MenuBarMenuPlan.visibleCommands {
             switch command {
+            case .quotaSectionHeader:
+                menu.addItem(quotaSectionItem)
+            case .quotaSubscriptionInfo:
+                menu.addItem(quotaSubscriptionItem)
+            case .quotaMainInfo:
+                menu.addItem(quotaMainItem)
+            case .quotaResetCreditsInfo:
+                menu.addItem(quotaResetCreditsItem)
+                menu.addItem(.separator())
             case .sessionSectionHeader:
                 menu.addItem(sessionSectionItem)
             case .sessionInfo:
@@ -644,6 +663,46 @@ final class MenuBarController {
 
         sessionSwitchItem.submenu = menu
         sessionSwitchItem.isEnabled = true
+    }
+
+    private func updateQuotaItems(snapshot: CodexQuotaSnapshot, language: DisplayLanguage) {
+        let isEnglish = language == .english
+        let unavailable = isEnglish ? "Unavailable" : "不可用"
+        let separator = localizedLabelSeparator()
+        quotaSectionItem.title = isEnglish ? "Quota" : "额度"
+        let plan = snapshot.planType?.trimmingCharacters(in: .whitespacesAndNewlines)
+        quotaSubscriptionItem.title = "\(isEnglish ? "Subscription" : "订阅")\(separator)\(plan?.isEmpty == false ? plan!.capitalized : unavailable)"
+
+        if let usedPercent = snapshot.mainUsedPercent,
+           let resetsAt = snapshot.mainResetsAt {
+            let label = isEnglish ? "Main quota" : "主额度"
+            let used = isEnglish ? "\(usedPercent)% used" : "已用 \(usedPercent)%"
+            let reset = isEnglish ? "Resets \(localizedQuotaDate(resetsAt, language: language))" : "重置于 \(localizedQuotaDate(resetsAt, language: language))"
+            quotaMainItem.title = "\(label)\(separator)\(used) · \(reset)"
+        } else {
+            quotaMainItem.title = "\(isEnglish ? "Main quota" : "主额度")\(separator)\(unavailable)"
+        }
+
+        if let count = snapshot.availableResetCount {
+            let label = isEnglish ? "Available resets" : "可用重置"
+            let amount = isEnglish ? "\(count)" : "\(count) 次"
+            if let expiresAt = snapshot.availableResetExpiresAt {
+                let expiration = isEnglish ? "Expires \(localizedQuotaDate(expiresAt, language: language))" : "到期于 \(localizedQuotaDate(expiresAt, language: language))"
+                quotaResetCreditsItem.title = "\(label)\(separator)\(amount) · \(expiration)"
+            } else {
+                quotaResetCreditsItem.title = "\(label)\(separator)\(amount)"
+            }
+        } else {
+            quotaResetCreditsItem.title = "\(isEnglish ? "Available resets" : "可用重置")\(separator)\(unavailable)"
+        }
+    }
+
+    private func localizedQuotaDate(_ date: Date, language: DisplayLanguage) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: language == .english ? "en_US" : "zh_CN")
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 
     private static func statusBarIcon(badgeColor: NSColor? = nil) -> NSImage {

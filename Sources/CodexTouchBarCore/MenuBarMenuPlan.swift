@@ -1,4 +1,8 @@
 public enum MenuBarCommand: Equatable, Sendable {
+    case quotaSectionHeader
+    case quotaSubscriptionInfo
+    case quotaMainInfo
+    case quotaResetCreditsInfo
     case sessionSectionHeader
     case sessionInfo
     case projectInfo
@@ -46,6 +50,10 @@ public enum MenuBarCommand: Equatable, Sendable {
 
 public enum MenuBarMenuPlan {
     public static let visibleCommands: [MenuBarCommand] = [
+        .quotaSectionHeader,
+        .quotaSubscriptionInfo,
+        .quotaMainInfo,
+        .quotaResetCreditsInfo,
         .sessionSectionHeader,
         .sessionInfo,
         .projectInfo,

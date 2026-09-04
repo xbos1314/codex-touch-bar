@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     private let rotation = RotatingDetailSelector()
     private var settings = TouchBarSettings()
     private let completionSpeechController = CompletionSpeechController()
+    private let quotaClient = CodexQuotaClient()
     private let touchBarAvailable = TouchBarHardwareCapability.isAvailable
     private lazy var touchBarController: TouchBarController? = touchBarAvailable ? TouchBarController() : nil
     private lazy var alwaysOnPresenter: PrivateTouchBarPresenter? = touchBarAvailable ? PrivateTouchBarPresenter() : nil
@@ -31,6 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     private var scanTimer: Timer?
     private var tailTimer: Timer?
     private var rotationTimer: Timer?
+    private var quotaRefreshTimer: Timer?
+    private var quotaSnapshot = CodexQuotaSnapshot.unavailable
     private var readingDocument: ReadingDocument?
     private var readingPageIndex = 0
     private var readingPageCount = 0
@@ -39,14 +42,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     func applicationDidFinishLaunching(_ notification: Notification) {
         menuBarController.delegate = self
         touchBarController?.delegate = self
+        quotaClient.onSnapshot = { [weak self] snapshot in
+            self?.quotaSnapshot = snapshot
+            self?.render()
+        }
         render()
         applyPresentationMode()
         startTimers()
+        quotaClient.start()
         refreshSession()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         completionSpeechController.stop()
+        quotaRefreshTimer?.invalidate()
+        quotaClient.stop()
         persistReadingProgress()
         alwaysOnPresenter?.dismiss()
         sessionsDirectoryMonitor?.stop()
@@ -66,6 +76,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
         }
         rotationTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.render() }
+        }
+        quotaRefreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, !self.paused else { return }
+                self.quotaClient.refresh()
+            }
         }
     }
 
@@ -236,6 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
         ).progressTitle
         menuBarController.apply(
             state: state,
+            quotaSnapshot: quotaSnapshot,
             language: settings.displayLanguage,
             statusBarContentEnabled: settings.statusBarContentEnabled,
             statusBarContentText: statusBarContent.text,
@@ -360,6 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     func menuBarDidRequestRefresh() {
         refreshSession()
         pollTail()
+        quotaClient.refresh()
     }
 
     func touchBarDidSelectAutomaticSession() {
