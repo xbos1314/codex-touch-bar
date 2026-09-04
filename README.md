@@ -1,0 +1,134 @@
+# Codex Touch Bar
+
+Languages: English | [简体中文](README.zh-CN.md)
+
+Codex Touch Bar is a macOS menu bar app that mirrors the active Codex task onto the physical Touch Bar. It shows the current Codex conversation, assistant replies, tool activity, approval waits, completion state, and a compact file reading mode.
+
+The app is designed for MacBook Pro models with a physical Touch Bar, such as the 13-inch MacBook Pro M2. It runs as a menu bar app and does not show a Dock icon.
+
+## Screenshots
+
+### Running
+
+![Codex task running on the Touch Bar](assets/screenshots/task_run.png)
+
+### Waiting for Approval
+
+![Codex approval request on the Touch Bar](assets/screenshots/task_approval.png)
+
+### Completed
+
+![Completed Codex task on the Touch Bar](assets/screenshots/task_complete.png)
+
+## Features
+
+- Codex session display: reads local Codex JSONL session files under `~/.codex/sessions` and shows the latest user message, assistant reply, and tool activity.
+- Automatic following: `AUTO` mode follows the most recently active primary Codex session.
+- Manual session lock: tap the left Touch Bar pet entry to open the session selector and lock the display to a specific session. The selector supports horizontal swiping.
+- Status pet: a minimal robot pet represents idle, running, approval wait, completed, failed, and reading states.
+- Detail display: supports both scrolling and paging modes. User interaction pauses automatic scrolling or paging for the current message; automatic behavior resumes when a new message appears.
+- Approval display: pending Codex tool approvals are shown directly on the Touch Bar, with a distinct approval pet color.
+- Open current session: available from both the menu bar and the right side of the Touch Bar.
+- Manual idle: after completion, the idle action can dismiss the completed state and return to an idle message.
+- Completion sound: plays a short local sound when a task completes.
+- Completion speech: can automatically read the final assistant reply aloud. The menu bar exposes enablement, voice selection, speech rate, and pitch controls.
+- Reading mode: open local text files for a night-reading style Touch Bar view. It supports TXT, Markdown, Word documents, and common source code files.
+- Reading progress: remembers the latest file and page, supports continue reading, auto-page speed settings, and paragraph navigation.
+
+## Touch Bar Layout
+
+Codex session mode:
+
+```text
+Pet/session entry | Detail content | Open current session | Idle
+```
+
+Reading mode:
+
+```text
+Auto page | Previous page | Detail content | Next page | Paragraph selector
+```
+
+Idle messages:
+
+- `AUTO · 暂无进行中的任务`
+- `<Project name> · 暂无进行中的任务`
+
+## Menu Bar
+
+The menu is grouped by purpose:
+
+- Codex session: current session, project, open current session, completion speech, voice, rate, and pitch.
+- Reading: current file, path, progress, open file, continue reading, exit reading mode, and auto-page speed.
+- Touch Bar: always-on Touch Bar mode and detail display mode.
+- General: pause updates, refresh now, and quit.
+
+## Agent Installation
+
+An AI coding agent can install and launch the app from a fresh checkout with these steps:
+
+```bash
+git clone https://github.com/xbos1314/codex-touch-bar.git
+cd codex-touch-bar
+swift build
+./scripts/package-app.sh
+osascript -e 'tell application "Codex Touch Bar" to quit' 2>/dev/null || true
+ditto "dist/Codex Touch Bar.app" "/Applications/Codex Touch Bar.app"
+open "/Applications/Codex Touch Bar.app"
+```
+
+## Build and Run
+
+The project uses SwiftPM:
+
+```bash
+swift build
+```
+
+Package the app bundle:
+
+```bash
+scripts/package-app.sh
+open "dist/Codex Touch Bar.app"
+```
+
+Install it into `/Applications`:
+
+```bash
+ditto "dist/Codex Touch Bar.app" "/Applications/Codex Touch Bar.app"
+open "/Applications/Codex Touch Bar.app"
+```
+
+Verify the generated app signature:
+
+```bash
+codesign --verify --deep --strict "dist/Codex Touch Bar.app"
+```
+
+## Project Layout
+
+```text
+Sources/CodexTouchBarApp/       macOS AppKit menu bar app and Touch Bar controller
+Sources/CodexTouchBarCore/      Session parsing, state reduction, display policies, and settings
+assets/screenshots/             README screenshots
+Packaging/                      Info.plist and app icon source
+scripts/package-app.sh          SwiftPM build and .app packaging script
+```
+
+## Known Limitations
+
+- Codex content is read from local `~/.codex/sessions` JSONL files, so display updates can have a small delay.
+- The always-on Control Strip entry depends on private macOS Touch Bar behavior and may need adjustment after macOS updates.
+- The app displays and opens Codex sessions, but it does not send replies into Codex sessions.
+- Physical Touch Bar behavior must be manually checked on the target MacBook Pro.
+
+## Development Notes
+
+- Build the app bundle with `scripts/package-app.sh`.
+- Main transcript cleanup lives in `Sources/CodexTouchBarCore/CodexDisplayTextFormatter.swift`.
+- Markdown reading cleanup lives in `Sources/CodexTouchBarCore/ReadingMarkdownTextFormatter.swift`.
+- Robot pet drawing policy lives in `Sources/CodexTouchBarCore/TouchBarRobotPetDrawingPolicy.swift`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

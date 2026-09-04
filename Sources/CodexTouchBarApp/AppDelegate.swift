@@ -1,0 +1,444 @@
+import AppKit
+import AVFoundation
+import CodexTouchBarCore
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDelegate, TouchBarControllerDelegate {
+    private let sessionStore = CodexSessionStore()
+    private let tailer = JSONLTailer()
+    private let parser = CodexEventParser()
+    private lazy var reducer = DisplayStateReducer(parser: parser)
+    private let rotation = RotatingDetailSelector()
+    private var settings = TouchBarSettings()
+    private let touchBarController = TouchBarController()
+    private let alwaysOnPresenter = PrivateTouchBarPresenter()
+    private lazy var menuBarController = MenuBarController()
+    private let fileEventQueue = DispatchQueue(label: "com.local.codex-touch-bar.file-events")
+    private let sessionsRootURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".codex/sessions", isDirectory: true)
+
+    private var state = CodexDisplayState.idle(message: "等待 Codex 活动")
+    private var availableSessions: [CodexSessionFile] = []
+    private var sessionSelectionMode: CodexSessionSelectionMode = .automaticLatest
+    private var selectedURL: URL?
+    private var monitoredSessionURL: URL?
+    private var cursor: UInt64 = 0
+    private var paused = false
+    private var sessionsDirectoryMonitor: FileSystemEventMonitor?
+    private var selectedSessionMonitor: FileSystemEventMonitor?
+    private var scanTimer: Timer?
+    private var tailTimer: Timer?
+    private var rotationTimer: Timer?
+    private var readingDocument: ReadingDocument?
+    private var readingPageIndex = 0
+    private var readingPageCount = 0
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        menuBarController.delegate = self
+        touchBarController.delegate = self
+        render()
+        applyPresentationMode()
+        startTimers()
+        refreshSession()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        persistReadingProgress()
+        alwaysOnPresenter.dismiss()
+        sessionsDirectoryMonitor?.stop()
+        selectedSessionMonitor?.stop()
+    }
+
+    private func startTimers() {
+        startSessionsDirectoryMonitor()
+        scanTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.startSessionsDirectoryMonitor()
+                self?.refreshSession()
+            }
+        }
+        tailTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.pollTail() }
+        }
+        rotationTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.render() }
+        }
+    }
+
+    private func refreshSession() {
+        guard !paused else { return }
+        do {
+            availableSessions = try sessionStore.recentPrimarySessions()
+            sessionSelectionMode = CodexSessionSelectionPolicy.validatedMode(
+                sessionSelectionMode,
+                sessions: availableSessions
+            )
+
+            guard let session = CodexSessionSelectionPolicy.selectedSession(
+                from: availableSessions,
+                mode: sessionSelectionMode
+            ) else {
+                state = .idle(message: "等待 Codex 活动")
+                cursor = 0
+                selectedURL = nil
+                stopSelectedSessionMonitor()
+                render()
+                return
+            }
+
+            if selectedURL != session.url {
+                try loadSession(session)
+            } else {
+                render()
+            }
+        } catch {
+            state = .idle(message: "无法读取 Codex 会话")
+            render()
+        }
+    }
+
+    private func loadSession(_ session: CodexSessionFile) throws {
+        selectedURL = session.url
+        let tail = try tailer.readTail(fileURL: session.url)
+        cursor = tail.nextOffset
+        let events = parser.parseEvents(from: tail.text)
+        state = reducer.reduce(state: reducer.reset(session: session), events: events, session: session)
+        watchSelectedSession(at: session.url)
+        render()
+    }
+
+    private func pollTail() {
+        guard !paused, let currentURL = selectedURL else { return }
+        do {
+            guard let session = try sessionStore.sessionFile(at: currentURL) else {
+                if case .locked(let url) = sessionSelectionMode, url == currentURL {
+                    sessionSelectionMode = .automaticLatest
+                }
+                selectedURL = nil
+                cursor = 0
+                refreshSession()
+                return
+            }
+            if session.size < cursor {
+                selectedURL = nil
+                cursor = 0
+                refreshSession()
+                return
+            }
+            let result = try tailer.readCompleteRange(fileURL: currentURL, offset: cursor, size: session.size)
+            guard result.nextOffset != cursor else {
+                render()
+                return
+            }
+            cursor = result.nextOffset
+            let events = parser.parseEvents(from: result.text)
+            state = reducer.reduce(state: state, events: events, session: session)
+            render()
+        } catch {
+            state = .idle(message: "无法读取 Codex 会话")
+            render()
+        }
+    }
+
+    private func startSessionsDirectoryMonitor() {
+        guard sessionsDirectoryMonitor == nil else { return }
+        let monitor = FileSystemEventMonitor(
+            url: sessionsRootURL,
+            eventMask: [.write, .extend, .delete, .rename],
+            queue: fileEventQueue
+        ) { [weak self] in
+            DispatchQueue.main.async {
+                self?.refreshSession()
+            }
+        }
+        guard monitor.start() else { return }
+        sessionsDirectoryMonitor = monitor
+    }
+
+    private func watchSelectedSession(at url: URL) {
+        guard monitoredSessionURL != url else { return }
+        stopSelectedSessionMonitor()
+        let monitor = FileSystemEventMonitor(
+            url: url,
+            eventMask: [.write, .extend, .delete, .rename],
+            queue: fileEventQueue
+        ) { [weak self] in
+            DispatchQueue.main.async {
+                self?.pollTail()
+            }
+        }
+        guard monitor.start() else { return }
+        monitoredSessionURL = url
+        selectedSessionMonitor = monitor
+    }
+
+    private func stopSelectedSessionMonitor() {
+        selectedSessionMonitor?.stop()
+        selectedSessionMonitor = nil
+        monitoredSessionURL = nil
+    }
+
+    private func render() {
+        if let readingDocument {
+            let progress = touchBarController.applyReading(
+                document: readingDocument,
+                requestedPageIndex: readingPageIndex,
+                autoPageInterval: settings.readingAutoPageSpeed.intervalSeconds
+            )
+            readingPageIndex = progress.pageIndex
+            readingPageCount = progress.pageCount
+            persistReadingProgress()
+        } else {
+            touchBarController.apply(
+                state: state,
+                detail: rotation.detailPresentation(for: state, idleTargetName: idleTargetName()),
+                displayMode: settings.detailDisplayMode,
+                sessions: availableSessions,
+                selectionMode: sessionSelectionMode,
+                completionSpeechEnabled: settings.completionSpeechEnabled,
+                completionSpeechVoiceIdentifier: settings.completionSpeechVoiceIdentifier,
+                completionSpeechVoiceOptions: completionSpeechVoiceOptions(),
+                completionSpeechRate: settings.completionSpeechRate,
+                completionSpeechPitch: settings.completionSpeechPitch
+            )
+            readingPageCount = 0
+        }
+        let progressTitle = ReadingProgressPresentationPolicy.presentation(
+            pageIndex: readingPageIndex,
+            pageCount: readingDocument == nil ? 0 : readingPageCount
+        ).progressTitle
+        menuBarController.apply(
+            state: state,
+            paused: paused,
+            presentationMode: settings.presentationMode,
+            detailDisplayMode: settings.detailDisplayMode,
+            readingAutoPageSpeed: settings.readingAutoPageSpeed,
+            alwaysOnStatus: alwaysOnPresenter.status.menuText,
+            readingFileName: readingDocument?.fileName,
+            readingFilePath: readingDocument?.fileURL.path,
+            readingProgressTitle: progressTitle,
+            continueReadingFileName: resumableReadingFileName(),
+            completionSpeechEnabled: settings.completionSpeechEnabled,
+            completionSpeechVoiceIdentifier: settings.completionSpeechVoiceIdentifier,
+            completionSpeechVoiceOptions: completionSpeechVoiceOptions(),
+            completionSpeechRate: settings.completionSpeechRate,
+            completionSpeechPitch: settings.completionSpeechPitch
+        )
+    }
+
+    func menuBarDidTogglePause() {
+        paused.toggle()
+        render()
+    }
+
+    func menuBarDidRequestOpenCurrentSession() {
+        openCurrentSessionInDesktop()
+    }
+
+    func menuBarDidRequestOpenReadingFile() {
+        openReadingFilePanel()
+    }
+
+    func menuBarDidRequestContinueReading() {
+        guard let path = settings.lastReadingFilePath else { return }
+        openReadingFile(at: URL(fileURLWithPath: path))
+    }
+
+    func menuBarDidRequestExitReadingMode() {
+        persistReadingProgress()
+        readingDocument = nil
+        readingPageIndex = 0
+        readingPageCount = 0
+        render()
+    }
+
+    func menuBarDidToggleAlwaysOn() {
+        settings.presentationMode = settings.presentationMode == .experimentalAlwaysOn
+            ? .officialHostWindow
+            : .experimentalAlwaysOn
+        applyPresentationMode()
+    }
+
+    func menuBarDidToggleCompletionSpeech() {
+        settings.completionSpeechEnabled.toggle()
+        if !settings.completionSpeechEnabled {
+            touchBarController.stopCompletionSpeech()
+        }
+        render()
+    }
+
+    func menuBarDidSelectCompletionSpeechVoice(identifier: String?) {
+        settings.completionSpeechVoiceIdentifier = identifier
+        touchBarController.stopCompletionSpeech()
+        render()
+    }
+
+    func menuBarDidSelectCompletionSpeechRate(_ rate: CompletionSpeechRate) {
+        settings.completionSpeechRate = rate
+        touchBarController.stopCompletionSpeech()
+        render()
+    }
+
+    func menuBarDidSelectCompletionSpeechPitch(_ pitch: CompletionSpeechPitch) {
+        settings.completionSpeechPitch = pitch
+        touchBarController.stopCompletionSpeech()
+        render()
+    }
+
+    func menuBarDidSelectDetailDisplayMode(_ mode: TouchBarDetailDisplayMode) {
+        settings.detailDisplayMode = mode
+        render()
+    }
+
+    func menuBarDidSelectReadingAutoPageSpeed(_ speed: ReadingAutoPageSpeed) {
+        settings.readingAutoPageSpeed = speed
+        render()
+    }
+
+    func menuBarDidRequestRefresh() {
+        refreshSession()
+        pollTail()
+    }
+
+    func touchBarDidSelectAutomaticSession() {
+        sessionSelectionMode = .automaticLatest
+        selectedURL = nil
+        cursor = 0
+        refreshSession()
+    }
+
+    func touchBarDidSelectSession(url: URL) {
+        sessionSelectionMode = .locked(url)
+        selectedURL = nil
+        cursor = 0
+        refreshSession()
+    }
+
+    func touchBarDidRequestOpenCurrentSession() {
+        openCurrentSessionInDesktop()
+    }
+
+    func touchBarDidRequestIdleCurrentSession() {
+        state = idleDisplayStateKeepingCurrentSession()
+        touchBarController.stopCompletionSpeech()
+        render()
+    }
+
+    private func applyPresentationMode() {
+        switch settings.presentationMode {
+        case .officialHostWindow:
+            alwaysOnPresenter.dismiss()
+        case .experimentalAlwaysOn:
+            _ = alwaysOnPresenter.present(touchBarController.touchBar)
+        }
+        render()
+    }
+
+    private func idleTargetName() -> String {
+        switch sessionSelectionMode {
+        case .automaticLatest:
+            return "AUTO"
+        case .locked:
+            let projectName = state.projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+            return projectName.isEmpty || projectName == "-" ? "当前项目" : projectName
+        }
+    }
+
+    private func openCurrentSessionInDesktop() {
+        guard let rawSessionId = state.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawSessionId.isEmpty,
+              let encodedSessionId = rawSessionId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "codex://threads/\(encodedSessionId)") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func idleDisplayStateKeepingCurrentSession() -> CodexDisplayState {
+        CodexDisplayState(
+            sessionId: state.sessionId,
+            projectName: state.projectName,
+            projectPath: state.projectPath,
+            status: .idle,
+            latestActivity: CodexActivity(
+                id: "idle-dismissed-completion",
+                timestamp: "",
+                kind: .thinking,
+                status: .completed,
+                text: "等待 Codex 活动"
+            ),
+            activities: state.activities,
+            latestAssistantText: nil,
+            latestAssistantTimestamp: nil,
+            latestUserText: nil,
+            latestUserTimestamp: nil,
+            isTaskRunning: false,
+            isTaskComplete: false,
+            lastUpdatedAt: Date()
+        )
+    }
+
+    private func openReadingFilePanel() {
+        let panel = NSOpenPanel()
+        panel.title = "Open Reading File"
+        panel.prompt = "Open"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.resolvesAliases = true
+
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        openReadingFile(at: url)
+    }
+
+    private func openReadingFile(at url: URL) {
+        do {
+            let document = try ReadingFileLoader.load(from: url)
+            readingDocument = document
+            settings.lastReadingFilePath = url.path
+            readingPageIndex = settings.readingPageIndex(forFilePath: url.path)
+            readingPageCount = 0
+            render()
+        } catch {
+            showReadingError(error, fileName: url.lastPathComponent)
+        }
+    }
+
+    private func persistReadingProgress() {
+        guard let readingDocument else { return }
+        let progress = touchBarController.currentReadingProgress()
+        let pageIndex = progress.pageCount > 0 ? progress.pageIndex : readingPageIndex
+        settings.lastReadingFilePath = readingDocument.fileURL.path
+        settings.setReadingPageIndex(pageIndex, forFilePath: readingDocument.fileURL.path)
+    }
+
+    private func resumableReadingFileName() -> String? {
+        guard let path = settings.lastReadingFilePath,
+              FileManager.default.fileExists(atPath: path) else {
+            return nil
+        }
+        return URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private func showReadingError(_ error: Error, fileName: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "无法读取文件"
+        alert.informativeText = "\(fileName)\n\(error.localizedDescription)"
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func completionSpeechVoiceOptions() -> [CompletionSpeechVoiceOption] {
+        AVSpeechSynthesisVoice.speechVoices().map { voice in
+            CompletionSpeechVoiceOption(
+                identifier: voice.identifier,
+                name: voice.name,
+                language: voice.language,
+                qualityRank: Int(voice.quality.rawValue)
+            )
+        }
+    }
+}
