@@ -22,6 +22,10 @@ Codex Touch Bar 是一个 macOS 状态栏应用，用于把 Codex 当前会话�
 
 ![Codex 任务完成后的 Touch Bar 效果](assets/screenshots/task_complete.png)
 
+### 空闲
+
+![Codex 空闲状态的 Touch Bar 效果](assets/screenshots/task_idle.png)
+
 ## 功能
 
 - Codex 会话显示：自动读取 `~/.codex/sessions` 下的 Codex JSONL 会话文件，并显示最新用户消息、助手回复和工具活动。
@@ -32,6 +36,7 @@ Codex Touch Bar 是一个 macOS 状态栏应用，用于把 Codex 当前会话�
 - 审批提示：当 Codex 等待工具调用审批时，Touch Bar 会显示审批信息，宠物切换为等待审批颜色。
 - 打开当前会话：状态栏菜单和 Touch Bar 右侧入口都可以打开当前 Codex 会话。
 - 手动闲置：任务完成后可点击闲置入口，让当前显示回到空闲文案。
+- 空闲互动：点击宠物可展开会话列表；点击宠物的空闲活动区域会生成彩色标记，宠物会依次移动并消耗标记，同时最多保留五个标记。
 - 完成提示：任务完成时支持提示音效。
 - 完成朗读：可在状态栏菜单中开启或关闭完成后的自动朗读，并选择系统语音、语速和音调。
 - 阅读模式：可从状态栏选择文本文件进入夜读模式，支持 TXT、Markdown、Word 文档以及常见代码文件。

@@ -44,6 +44,17 @@ public enum TouchBarRobotPetAntennaLayout: Equatable, Sendable {
     case splitTop
 }
 
+public enum TouchBarRobotPetWalkDirection: Equatable, Sendable {
+    case left
+    case right
+}
+
+public enum TouchBarRobotPetSideModuleHighlight: Equatable, Sendable {
+    case none
+    case left
+    case right
+}
+
 public struct TouchBarRobotPetFaceExpression: Equatable, Sendable {
     public var leftEye: TouchBarRobotPetEyeShape
     public var rightEye: TouchBarRobotPetEyeShape
@@ -81,6 +92,9 @@ public struct TouchBarRobotPetStyle: Equatable, Sendable {
     public var sideModuleWidth: Double
     public var sideModuleHeight: Double
     public var sideModuleInnerOverlap: Double
+    public var eyeHorizontalOffset: Double
+    public var antennaHorizontalOffset: Double
+    public var highlightedSideModule: TouchBarRobotPetSideModuleHighlight
     public var bodyShape: TouchBarRobotPetBodyShape
     public var antennaLayout: TouchBarRobotPetAntennaLayout
     public var faceExpression: TouchBarRobotPetFaceExpression
@@ -108,6 +122,9 @@ public struct TouchBarRobotPetStyle: Equatable, Sendable {
         sideModuleWidth: Double,
         sideModuleHeight: Double,
         sideModuleInnerOverlap: Double,
+        eyeHorizontalOffset: Double,
+        antennaHorizontalOffset: Double,
+        highlightedSideModule: TouchBarRobotPetSideModuleHighlight,
         bodyShape: TouchBarRobotPetBodyShape,
         antennaLayout: TouchBarRobotPetAntennaLayout,
         faceExpression: TouchBarRobotPetFaceExpression,
@@ -134,6 +151,9 @@ public struct TouchBarRobotPetStyle: Equatable, Sendable {
         self.sideModuleWidth = sideModuleWidth
         self.sideModuleHeight = sideModuleHeight
         self.sideModuleInnerOverlap = sideModuleInnerOverlap
+        self.eyeHorizontalOffset = eyeHorizontalOffset
+        self.antennaHorizontalOffset = antennaHorizontalOffset
+        self.highlightedSideModule = highlightedSideModule
         self.bodyShape = bodyShape
         self.antennaLayout = antennaLayout
         self.faceExpression = faceExpression
@@ -171,12 +191,19 @@ public enum TouchBarRobotPetDrawingPolicy {
         }
     }
 
-    public static func style(for mood: TouchBarPetMood, frameIndex: Int) -> TouchBarRobotPetStyle {
+    public static func style(
+        for mood: TouchBarPetMood,
+        frameIndex: Int,
+        walkDirection: TouchBarRobotPetWalkDirection? = nil
+    ) -> TouchBarRobotPetStyle {
         let safeFrame = max(0, frameIndex)
         let tone: TouchBarRobotPetTone
         let expression: TouchBarRobotPetExpression
-        let verticalOffset: Double
+        var verticalOffset: Double
         let faceExpression: TouchBarRobotPetFaceExpression
+        var eyeHorizontalOffset: Double = 0
+        var antennaHorizontalOffset: Double = 0
+        var highlightedSideModule: TouchBarRobotPetSideModuleHighlight = .none
 
         switch mood {
         case .idle:
@@ -184,6 +211,20 @@ public enum TouchBarRobotPetDrawingPolicy {
             expression = safeFrame % 36 == 26 ? .blink : .neutral
             verticalOffset = 0
             faceExpression = blinkFaceExpression(for: safeFrame)
+            if let walkDirection {
+                let stepOffsets: [Double] = [0, 0.45, 0.2, -0.25]
+                verticalOffset = stepOffsets[safeFrame % stepOffsets.count]
+                switch walkDirection {
+                case .left:
+                    eyeHorizontalOffset = -0.85
+                    antennaHorizontalOffset = -0.55
+                    highlightedSideModule = .left
+                case .right:
+                    eyeHorizontalOffset = 0.85
+                    antennaHorizontalOffset = 0.55
+                    highlightedSideModule = .right
+                }
+            }
         case .thinking:
             tone = .thinking
             expression = .thinking
@@ -242,6 +283,9 @@ public enum TouchBarRobotPetDrawingPolicy {
             sideModuleWidth: 3.2,
             sideModuleHeight: 7,
             sideModuleInnerOverlap: 0,
+            eyeHorizontalOffset: eyeHorizontalOffset,
+            antennaHorizontalOffset: antennaHorizontalOffset,
+            highlightedSideModule: highlightedSideModule,
             bodyShape: .cyberTv,
             antennaLayout: .splitTop,
             faceExpression: faceExpression,

@@ -43,7 +43,17 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
     private let sessionSelectionDocumentView = NSView()
     private let readingParagraphDocumentView = NSView()
     private let petView = TouchBarPetView()
-    private var lastRendered: (project: String, detail: CodexDetailPresentation, petMood: TouchBarPetMood, canOpenSession: Bool, canDismissCompletion: Bool)?
+    private let idlePlaygroundView = TouchBarPetView()
+    private var projectContainerWidthConstraint: NSLayoutConstraint?
+    private var usesIdlePlaygroundLayout = false
+    private var lastRendered: (
+        project: String,
+        detail: CodexDetailPresentation,
+        petMood: TouchBarPetMood,
+        usesIdlePlayground: Bool,
+        canOpenSession: Bool,
+        canDismissCompletion: Bool
+    )?
     private var lastSessionSelectorSignature = ""
     private var sessionChoices: [CodexSessionFile] = []
     private var sessionSelectionMode: CodexSessionSelectionMode = .automaticLatest
@@ -103,6 +113,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         super.init()
         configureProjectContainerView()
         configurePetView()
+        configureIdlePlaygroundView()
         configureDetailIconView()
         configureDetailLabel()
         configureDetailScrollView()
@@ -177,6 +188,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
             )
         }
         let petMood: TouchBarPetMood = isShowingSessionSelector ? .selecting : basePetMood
+        let usesIdlePlayground = petMood == .idle
         let canOpenSession = state.sessionId?.isEmpty == false
         let canDismissCompletion = canOpenSession && state.isTaskComplete && state.status == .completed
         let effectiveSessions = isShowingSessionSelector
@@ -198,6 +210,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         guard lastRendered?.project != project
                 || lastRendered?.detail != detail
                 || lastRendered?.petMood != petMood
+                || lastRendered?.usesIdlePlayground != usesIdlePlayground
                 || lastRendered?.canOpenSession != canOpenSession
                 || lastRendered?.canDismissCompletion != canDismissCompletion
                 || modeChanged
@@ -219,7 +232,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         sessionSelectionMode = selectionMode
         updateOpenSessionButton(canOpenSession: canOpenSession)
         updateIdleSessionButton(canDismissCompletion: canDismissCompletion)
-        petView.mood = petMood
+        updatePetPresentation(mood: petMood, usesIdlePlayground: usesIdlePlayground, idleText: detail.text)
         if selectorChanged || sessionSelectionDocumentView.subviews.isEmpty {
             updateSessionSelectionButtons()
         }
@@ -233,7 +246,11 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         case .scrolling:
             if textChanged || modeChanged {
                 if !isShowingSessionSelector {
-                    scrollDetail(to: 0)
+                    if usesIdlePlayground {
+                        showIdlePlaygroundDocument()
+                    } else {
+                        showDetailDocument()
+                    }
                 }
                 lastAutoScrollDate = Date()
                 autoScrollPauseUntil = TouchBarAutoScrollPolicy.pauseUntil(
@@ -242,7 +259,11 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
             }
         case .paging:
             if !isShowingSessionSelector {
-                scrollDetail(to: 0)
+                if usesIdlePlayground {
+                    showIdlePlaygroundDocument()
+                } else {
+                    showDetailDocument()
+                }
             }
             autoScrollPauseUntil = nil
             if textChanged || modeChanged {
@@ -251,7 +272,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
             }
         }
         applyItemIdentifiers()
-        lastRendered = (project, detail, petMood, canOpenSession, canDismissCompletion)
+        lastRendered = (project, detail, petMood, usesIdlePlayground, canOpenSession, canDismissCompletion)
         lastSessionSelectorSignature = sessionSelectorSignature
     }
 
@@ -319,7 +340,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         completionSoundState = CompletionSoundState()
         completionSpeechState = CompletionSpeechState()
         stopCompletionSpeech()
-        petView.mood = .reading
+        updatePetPresentation(mood: .reading, usesIdlePlayground: false, idleText: "")
         isShowingSessionSelector = false
         pageTimer?.invalidate()
         pageTimer = nil
@@ -423,8 +444,25 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         let frame = TouchBarProjectStatusLayout.frame()
         projectContainerView.frame = NSRect(x: 0, y: 0, width: frame.width, height: frame.height)
         projectContainerView.translatesAutoresizingMaskIntoConstraints = false
-        projectContainerView.widthAnchor.constraint(equalToConstant: CGFloat(frame.width)).isActive = true
+        let widthConstraint = projectContainerView.widthAnchor.constraint(equalToConstant: CGFloat(frame.width))
+        widthConstraint.isActive = true
+        projectContainerWidthConstraint = widthConstraint
         projectContainerView.heightAnchor.constraint(equalToConstant: CGFloat(frame.height)).isActive = true
+    }
+
+    private func updatePetPresentation(mood: TouchBarPetMood, usesIdlePlayground: Bool, idleText: String) {
+        usesIdlePlaygroundLayout = usesIdlePlayground
+        petView.idleText = ""
+        petView.usesIdlePlayground = false
+        petView.mood = mood
+        idlePlaygroundView.idleText = usesIdlePlayground ? idleText : ""
+        idlePlaygroundView.usesIdlePlayground = usesIdlePlayground
+        idlePlaygroundView.mood = mood
+        if usesIdlePlayground, !isShowingSessionSelector, readingDocument == nil {
+            showIdlePlaygroundDocument()
+        } else if detailScrollView.documentView === idlePlaygroundView {
+            showDetailDocument()
+        }
     }
 
     private func configureDetailIconView() {
@@ -458,6 +496,15 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         detailScrollView.autohidesScrollers = true
         detailScrollView.onUserInteraction = { [weak self] in
             self?.handleDetailUserInteraction()
+        }
+        detailScrollView.onDocumentPress = { [weak self] point in
+            guard let self,
+                  self.usesIdlePlaygroundLayout,
+                  self.detailScrollView.documentView === self.idlePlaygroundView
+            else {
+                return false
+            }
+            return self.idlePlaygroundView.handleIdlePlaygroundPress(at: point)
         }
         detailScrollView.translatesAutoresizingMaskIntoConstraints = false
         detailScrollView.widthAnchor.constraint(lessThanOrEqualToConstant: CGFloat(TouchBarLayoutMetrics.detailMinimumWidth)).isActive = true
@@ -552,17 +599,23 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
     private func configurePetView() {
         let frame = TouchBarProjectStatusLayout.frame()
         petView.translatesAutoresizingMaskIntoConstraints = true
-        petView.frame = NSRect(
-            x: frame.iconX,
-            y: frame.iconY,
-            width: frame.iconSize,
-            height: frame.height
-        )
+        petView.frame = NSRect(x: frame.iconX, y: frame.iconY, width: frame.iconSize, height: frame.height)
+        petView.autoresizingMask = [.width, .height]
         petView.toolTip = "切换会话"
         petView.onPress = { [weak self] in
             self?.toggleSessionSelector()
         }
         projectContainerView.addSubview(petView)
+    }
+
+    private func configureIdlePlaygroundView() {
+        idlePlaygroundView.translatesAutoresizingMaskIntoConstraints = false
+        idlePlaygroundView.toolTip = "切换会话"
+        idlePlaygroundView.onPress = { [weak self] in
+            self?.toggleSessionSelector()
+        }
+        idlePlaygroundView.widthAnchor.constraint(lessThanOrEqualToConstant: CGFloat(TouchBarLayoutMetrics.detailMinimumWidth)).isActive = true
+        idlePlaygroundView.heightAnchor.constraint(equalToConstant: CGFloat(TouchBarLayoutMetrics.detailViewportHeight)).isActive = true
     }
 
     private func configureReadingPageButton(
@@ -725,12 +778,14 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
 
         return TouchBarLayoutPlan.visibleRegions(
             showingSessionSelector: isShowingSessionSelector,
+            usesIdlePlayground: usesIdlePlaygroundLayout,
             hasOpenSession: canOpenCurrentSession,
             canDismissCompletion: canDismissCompletedSession
         ).map { region in
             switch region {
             case .project: return Self.projectItem
             case .detailContent: return Self.detailContentItem
+            case .flexibleSpace: return .flexibleSpace
             case .sessionSelector: return Self.sessionSelectorItem
             case .openSession: return Self.openSessionItem
             case .idleSession: return Self.idleSessionItem
@@ -851,6 +906,24 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         detailScrollView.reflectScrolledClipView(detailScrollView.contentView)
     }
 
+    private func showIdlePlaygroundDocument() {
+        let width = max(
+            CGFloat(TouchBarLayoutMetrics.detailMinimumWidth),
+            detailScrollView.contentView.bounds.width
+        )
+        idlePlaygroundView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: width,
+            height: CGFloat(TouchBarLayoutMetrics.detailViewportHeight)
+        )
+        if detailScrollView.documentView !== idlePlaygroundView {
+            detailScrollView.documentView = idlePlaygroundView
+        }
+        detailScrollView.contentView.scroll(to: .zero)
+        detailScrollView.reflectScrolledClipView(detailScrollView.contentView)
+    }
+
     private func showSessionSelectionDocument(offset: CGFloat = 0) {
         if detailScrollView.documentView !== sessionSelectionDocumentView {
             detailScrollView.documentView = sessionSelectionDocumentView
@@ -913,7 +986,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
 
     @objc private func selectAutomaticSession() {
         isShowingSessionSelector = false
-        petView.mood = currentBasePetMood
+        updatePetPresentation(mood: currentBasePetMood, usesIdlePlayground: currentBasePetMood == .idle, idleText: detailLabel.stringValue)
         showDetailDocument()
         applyItemIdentifiers()
         delegate?.touchBarDidSelectAutomaticSession()
@@ -922,7 +995,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
     @objc private func selectSession(_ sender: SessionChoiceButton) {
         guard let url = sender.sessionURL else { return }
         isShowingSessionSelector = false
-        petView.mood = currentBasePetMood
+        updatePetPresentation(mood: currentBasePetMood, usesIdlePlayground: currentBasePetMood == .idle, idleText: detailLabel.stringValue)
         showDetailDocument()
         applyItemIdentifiers()
         delegate?.touchBarDidSelectSession(url: url)
@@ -930,7 +1003,12 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
 
     @objc private func toggleSessionSelector() {
         isShowingSessionSelector.toggle()
-        petView.mood = isShowingSessionSelector ? .selecting : currentBasePetMood
+        let mood: TouchBarPetMood = isShowingSessionSelector ? .selecting : currentBasePetMood
+        updatePetPresentation(
+            mood: mood,
+            usesIdlePlayground: !isShowingSessionSelector && currentBasePetMood == .idle,
+            idleText: detailLabel.stringValue
+        )
         updateSessionSelectionButtons()
         if isShowingSessionSelector {
             showSessionSelectionDocument()
@@ -1061,7 +1139,10 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
 
     private func scheduleNextPageAdvance() {
         pageTimer?.invalidate()
-        guard readingDocument == nil, detailDisplayMode == .paging, !detailAutoAdvanceSuppressed else {
+        guard readingDocument == nil,
+              detailDisplayMode == .paging,
+              !usesIdlePlaygroundLayout,
+              !detailAutoAdvanceSuppressed else {
             pageTimer = nil
             return
         }
@@ -1080,6 +1161,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         guard detailDisplayMode == .scrolling,
               readingDocument == nil,
               !isShowingSessionSelector,
+              !usesIdlePlaygroundLayout,
               !detailAutoAdvanceSuppressed else {
             lastAutoScrollDate = Date()
             return
@@ -1191,12 +1273,71 @@ private final class ReadingParagraphButton: NSButton {
 
 @MainActor
 private final class TouchBarPetView: NSView {
+    private enum IdleWalkDirection {
+        case left
+        case right
+
+        var drawingDirection: TouchBarRobotPetWalkDirection {
+            switch self {
+            case .left: return .left
+            case .right: return .right
+            }
+        }
+    }
+
+    private enum IdleMarkerShape: CaseIterable {
+        case circle
+        case diamond
+        case square
+        case sparkle
+    }
+
+    private struct IdleMarker {
+        var x: CGFloat
+        var y: CGFloat
+        var shape: IdleMarkerShape
+        var color: NSColor
+    }
+
+    private static let maximumIdleMarkerCount = 5
+
     var onPress: (() -> Void)?
+
+    var idleText = "" {
+        didSet {
+            if oldValue != idleText {
+                idleTargetHeadX = nil
+                idleWalkDirection = nil
+                trimMarkersToPlayableArea()
+                needsDisplay = true
+            }
+        }
+    }
+
+    var usesIdlePlayground = false {
+        didSet {
+            if oldValue != usesIdlePlayground {
+                idleTargetHeadX = nil
+                idleWalkDirection = nil
+                if !usesIdlePlayground {
+                    idleMarkers.removeAll()
+                }
+                scheduleNextIdleMove()
+                invalidateIntrinsicContentSize()
+                needsDisplay = true
+            }
+        }
+    }
 
     var mood: TouchBarPetMood = .idle {
         didSet {
             if oldValue != mood {
                 frameIndex = 0
+                if mood != .idle {
+                    idleTargetHeadX = nil
+                    idleWalkDirection = nil
+                    idleMarkers.removeAll()
+                }
                 needsDisplay = true
             }
         }
@@ -1205,6 +1346,12 @@ private final class TouchBarPetView: NSView {
     private var frameIndex = 0
     private var animationTimer: Timer?
     private var lastPressAt: TimeInterval = 0
+    private var lastAnimationTickAt: TimeInterval?
+    private var idleHeadX: CGFloat?
+    private var idleTargetHeadX: CGFloat?
+    private var idleWalkDirection: IdleWalkDirection?
+    private var nextIdleMoveAt: TimeInterval = 0
+    private var idleMarkers: [IdleMarker] = []
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1221,13 +1368,26 @@ private final class TouchBarPetView: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: 46, height: TouchBarLayoutMetrics.detailViewportHeight)
+        let width = usesIdlePlayground ? TouchBarLayoutMetrics.detailMinimumWidth : 46
+        return NSSize(width: width, height: TouchBarLayoutMetrics.detailViewportHeight)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let style = TouchBarRobotPetDrawingPolicy.style(for: mood, frameIndex: frameIndex)
+        if usesIdlePlayground, mood == .idle {
+            drawIdleText()
+            drawIdleMarkers()
+        }
+
+        let walkDirection = usesIdlePlayground && mood == .idle
+            ? idleWalkDirection?.drawingDirection
+            : nil
+        let style = TouchBarRobotPetDrawingPolicy.style(
+            for: mood,
+            frameIndex: frameIndex,
+            walkDirection: walkDirection
+        )
         let headRect = robotHeadRect(for: style)
         drawSideModules(around: headRect, style: style)
         drawAntennas(on: headRect, style: style)
@@ -1236,8 +1396,14 @@ private final class TouchBarPetView: NSView {
     }
 
     private func robotHeadRect(for style: TouchBarRobotPetStyle) -> NSRect {
-        NSRect(
-            x: (bounds.width - style.headWidth) / 2,
+        let x: CGFloat
+        if usesIdlePlayground, mood == .idle {
+            x = clampedIdleHeadX(for: style)
+        } else {
+            x = (bounds.width - style.headWidth) / 2
+        }
+        return NSRect(
+            x: x,
             y: (bounds.height - style.headHeight) / 2 + style.verticalOffset,
             width: style.headWidth,
             height: style.headHeight
@@ -1320,15 +1486,16 @@ private final class TouchBarPetView: NSView {
         let expression = style.faceExpression
         let eyeY = faceRect.midY + 1.3
         let eyeGap: CGFloat = 7.5
+        let lookOffset = CGFloat(style.eyeHorizontalOffset)
         drawEye(
             expression.leftEye,
-            center: NSPoint(x: faceRect.midX - eyeGap, y: eyeY),
+            center: NSPoint(x: faceRect.midX - eyeGap + lookOffset, y: eyeY),
             diameter: CGFloat(style.eyeDiameter),
             color: eyeColor(for: expression.leftEye)
         )
         drawEye(
             expression.rightEye,
-            center: NSPoint(x: faceRect.midX + eyeGap, y: eyeY),
+            center: NSPoint(x: faceRect.midX + eyeGap + lookOffset, y: eyeY),
             diameter: CGFloat(style.eyeDiameter),
             color: eyeColor(for: expression.rightEye)
         )
@@ -1377,6 +1544,79 @@ private final class TouchBarPetView: NSView {
         path.stroke()
     }
 
+    private func drawIdleText() {
+        let text = idleText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        let attributes = idleTextAttributes()
+        let availableWidth = max(0, textMaximumWidth())
+        guard availableWidth > 8 else { return }
+
+        let measuredSize = (text as NSString).size(withAttributes: attributes)
+        let textHeight = ceil(measuredSize.height)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        paragraph.alignment = .left
+
+        var drawingAttributes = attributes
+        drawingAttributes[.paragraphStyle] = paragraph
+
+        let rect = NSRect(
+            x: 0,
+            y: max(0, (bounds.height - textHeight) / 2),
+            width: min(ceil(measuredSize.width), availableWidth),
+            height: textHeight
+        )
+        (text as NSString).draw(in: rect, withAttributes: drawingAttributes)
+    }
+
+    private func drawIdleMarkers() {
+        for marker in idleMarkers {
+            drawIdleMarker(marker)
+        }
+    }
+
+    private func drawIdleMarker(_ marker: IdleMarker) {
+        let size: CGFloat = 6
+        let rect = NSRect(
+            x: marker.x - size / 2,
+            y: marker.y - size / 2,
+            width: size,
+            height: size
+        )
+        marker.color.setFill()
+        marker.color.withAlphaComponent(0.95).setStroke()
+
+        switch marker.shape {
+        case .circle:
+            let path = NSBezierPath(ovalIn: rect)
+            path.fill()
+        case .square:
+            let path = NSBezierPath(roundedRect: rect, xRadius: 1.4, yRadius: 1.4)
+            path.fill()
+        case .diamond:
+            let path = NSBezierPath()
+            path.move(to: NSPoint(x: rect.midX, y: rect.maxY))
+            path.line(to: NSPoint(x: rect.maxX, y: rect.midY))
+            path.line(to: NSPoint(x: rect.midX, y: rect.minY))
+            path.line(to: NSPoint(x: rect.minX, y: rect.midY))
+            path.close()
+            path.fill()
+        case .sparkle:
+            let path = NSBezierPath()
+            path.move(to: NSPoint(x: marker.x, y: marker.y + 4))
+            path.line(to: NSPoint(x: marker.x + 1.6, y: marker.y + 1.6))
+            path.line(to: NSPoint(x: marker.x + 4, y: marker.y))
+            path.line(to: NSPoint(x: marker.x + 1.6, y: marker.y - 1.6))
+            path.line(to: NSPoint(x: marker.x, y: marker.y - 4))
+            path.line(to: NSPoint(x: marker.x - 1.6, y: marker.y - 1.6))
+            path.line(to: NSPoint(x: marker.x - 4, y: marker.y))
+            path.line(to: NSPoint(x: marker.x - 1.6, y: marker.y + 1.6))
+            path.close()
+            path.fill()
+        }
+    }
+
     private func drawSideModules(around headRect: NSRect, style: TouchBarRobotPetStyle) {
         guard style.hasSideModules else { return }
         let moduleWidth = CGFloat(style.sideModuleWidth)
@@ -1386,9 +1626,11 @@ private final class TouchBarPetView: NSView {
         let left = NSRect(x: headRect.minX - moduleWidth + innerOverlap, y: y, width: moduleWidth, height: moduleHeight)
         let right = NSRect(x: headRect.maxX - innerOverlap, y: y, width: moduleWidth, height: moduleHeight)
         let color = strokeColor(for: style.tone)
-        let fillColor = style.sideModulesBlendWithBody ? bodyColor(for: style.tone) : color.withAlphaComponent(0.58)
-        fillColor.setFill()
+        let normalFillColor = style.sideModulesBlendWithBody ? bodyColor(for: style.tone) : color.withAlphaComponent(0.58)
+        let highlightedFillColor = color.withAlphaComponent(0.78)
+        (style.highlightedSideModule == .left ? highlightedFillColor : normalFillColor).setFill()
         NSBezierPath(roundedRect: left, xRadius: 1.4, yRadius: 1.4).fill()
+        (style.highlightedSideModule == .right ? highlightedFillColor : normalFillColor).setFill()
         NSBezierPath(roundedRect: right, xRadius: 1.4, yRadius: 1.4).fill()
         color.withAlphaComponent(0.82).setStroke()
         let leftPath = NSBezierPath(roundedRect: left, xRadius: 1.4, yRadius: 1.4)
@@ -1402,11 +1644,12 @@ private final class TouchBarPetView: NSView {
     private func drawAntennas(on headRect: NSRect, style: TouchBarRobotPetStyle) {
         guard style.antennaCount > 0 else { return }
         let color = strokeColor(for: style.tone)
+        let swing = CGFloat(style.antennaHorizontalOffset)
         switch style.antennaLayout {
         case .centerFork:
             let base = NSPoint(x: headRect.midX, y: headRect.maxY - 0.3)
-            let leftTip = NSPoint(x: max(bounds.minX + 6, headRect.midX - 9), y: min(bounds.maxY - 1.5, headRect.maxY + 5))
-            let rightTip = NSPoint(x: min(bounds.maxX - 6, headRect.midX + 9), y: min(bounds.maxY - 1.5, headRect.maxY + 5))
+            let leftTip = NSPoint(x: max(bounds.minX + 6, headRect.midX - 9 + swing), y: min(bounds.maxY - 1.5, headRect.maxY + 5))
+            let rightTip = NSPoint(x: min(bounds.maxX - 6, headRect.midX + 9 + swing), y: min(bounds.maxY - 1.5, headRect.maxY + 5))
             if style.antennaCount == 1 {
                 drawLine(from: base, to: rightTip, width: 1.1, color: color)
                 drawAntennaTip(at: rightTip, color: color)
@@ -1419,8 +1662,8 @@ private final class TouchBarPetView: NSView {
         case .splitTop:
             let leftBase = NSPoint(x: headRect.minX + 9.5, y: headRect.maxY - 0.2)
             let rightBase = NSPoint(x: headRect.maxX - 9.5, y: headRect.maxY - 0.2)
-            let leftTip = NSPoint(x: max(bounds.minX + 7, leftBase.x - 2.8), y: min(bounds.maxY - 1.5, headRect.maxY + 4.4))
-            let rightTip = NSPoint(x: min(bounds.maxX - 7, rightBase.x + 2.8), y: min(bounds.maxY - 1.5, headRect.maxY + 4.4))
+            let leftTip = NSPoint(x: max(bounds.minX + 7, leftBase.x - 2.8 + swing), y: min(bounds.maxY - 1.5, headRect.maxY + 4.4))
+            let rightTip = NSPoint(x: min(bounds.maxX - 7, rightBase.x + 2.8 + swing), y: min(bounds.maxY - 1.5, headRect.maxY + 4.4))
             if style.antennaCount == 1 {
                 drawLine(from: rightBase, to: rightTip, width: 1.1, color: color)
                 drawAntennaTip(at: rightTip, color: color)
@@ -1500,13 +1743,45 @@ private final class TouchBarPetView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        triggerPress()
-        super.mouseDown(with: event)
+        let point = convert(event.locationInWindow, from: nil)
+        if !handlePress(at: point) {
+            super.mouseDown(with: event)
+        }
     }
 
     override func touchesBegan(with event: NSEvent) {
-        triggerPress()
-        super.touchesBegan(with: event)
+        let touches = event.touches(matching: .touching, in: self)
+        if let touch = touches.first {
+            let handled = handlePress(at: touch.location(in: self))
+            if !handled {
+                super.touchesBegan(with: event)
+            }
+        } else {
+            triggerPress()
+            super.touchesBegan(with: event)
+        }
+    }
+
+    func handleIdlePlaygroundPress(at point: NSPoint) -> Bool {
+        handlePress(at: point)
+    }
+
+    private func handlePress(at point: NSPoint) -> Bool {
+        guard usesIdlePlayground, mood == .idle else {
+            triggerPress()
+            return true
+        }
+
+        let style = TouchBarRobotPetDrawingPolicy.style(for: .idle, frameIndex: frameIndex)
+        let headRect = robotHeadRect(for: style).insetBy(dx: -8, dy: -5)
+        if headRect.contains(point) {
+            triggerPress()
+            return true
+        }
+
+        guard idleMovementArea().contains(point) else { return false }
+        addIdleMarker(at: point)
+        return true
     }
 
     private func triggerPress() {
@@ -1521,12 +1796,214 @@ private final class TouchBarPetView: NSView {
         let timer = Timer(timeInterval: 0.18, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
+                let now = Date().timeIntervalSinceReferenceDate
+                let elapsed = min(0.36, max(0.01, now - (self.lastAnimationTickAt ?? now)))
+                self.lastAnimationTickAt = now
                 self.frameIndex = (self.frameIndex + 1) % 36
+                self.updateIdleWalk(now: now, elapsed: elapsed)
                 self.needsDisplay = true
             }
         }
         animationTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func updateIdleWalk(now: TimeInterval, elapsed: TimeInterval) {
+        let style = TouchBarRobotPetDrawingPolicy.style(for: .idle, frameIndex: frameIndex)
+        let range = idleHeadRange(for: style)
+        guard usesIdlePlayground, mood == .idle else {
+            idleTargetHeadX = nil
+            idleWalkDirection = nil
+            return
+        }
+        guard range.upperBound - range.lowerBound > 12 else {
+            idleHeadX = range.lowerBound
+            idleTargetHeadX = nil
+            idleWalkDirection = nil
+            return
+        }
+
+        var currentX = min(max(idleHeadX ?? range.lowerBound, range.lowerBound), range.upperBound)
+        if let marker = idleMarkers.first {
+            let target = min(max(marker.x - CGFloat(style.headWidth) / 2, range.lowerBound), range.upperBound)
+            let direction: IdleWalkDirection = target >= currentX ? .right : .left
+            let speed = CGFloat(42)
+            let step = speed * CGFloat(elapsed)
+            let delta = target - currentX
+            if abs(delta) <= step {
+                currentX = target
+            } else {
+                currentX += direction == .right ? step : -step
+            }
+            idleHeadX = min(max(currentX, range.lowerBound), range.upperBound)
+            idleWalkDirection = abs(marker.x - petCenterX(style: style)) > 7 ? direction : nil
+            consumeReachedIdleMarkers(style: style)
+            return
+        }
+
+        if let targetX = idleTargetHeadX, let direction = idleWalkDirection {
+            let speed = CGFloat(30)
+            let step = speed * CGFloat(elapsed)
+            let delta = targetX - currentX
+            if abs(delta) <= step {
+                currentX = targetX
+                idleTargetHeadX = nil
+                idleWalkDirection = nil
+                nextIdleMoveAt = now + Double.random(in: 0.45...1.25)
+            } else {
+                currentX += direction == .right ? step : -step
+            }
+            idleHeadX = min(max(currentX, range.lowerBound), range.upperBound)
+            return
+        }
+
+        idleHeadX = currentX
+        if nextIdleMoveAt == 0 {
+            scheduleNextIdleMove(from: now)
+        }
+        guard now >= nextIdleMoveAt else { return }
+
+        let direction = nextIdleWalkDirection(currentX: currentX, range: range)
+        let distance = CGFloat.random(in: 18...56)
+        let proposedTarget = currentX + (direction == .right ? distance : -distance)
+        let target = min(max(proposedTarget, range.lowerBound), range.upperBound)
+        if abs(target - currentX) > 2 {
+            idleTargetHeadX = target
+            idleWalkDirection = direction
+        } else {
+            nextIdleMoveAt = now + Double.random(in: 0.35...0.9)
+        }
+    }
+
+    private func nextIdleWalkDirection(currentX: CGFloat, range: ClosedRange<CGFloat>) -> IdleWalkDirection {
+        if currentX <= range.lowerBound + 3 {
+            return .right
+        }
+        if currentX >= range.upperBound - 3 {
+            return .left
+        }
+        return Bool.random() ? .left : .right
+    }
+
+    private func scheduleNextIdleMove(from now: TimeInterval = Date().timeIntervalSinceReferenceDate) {
+        nextIdleMoveAt = now + Double.random(in: 0.7...1.9)
+    }
+
+    private func addIdleMarker(at point: NSPoint) {
+        let area = idleMovementArea()
+        let style = TouchBarRobotPetDrawingPolicy.style(for: .idle, frameIndex: frameIndex)
+        let reachableX = idleMarkerXRange(for: style)
+        let marker = IdleMarker(
+            x: min(max(point.x, reachableX.lowerBound), reachableX.upperBound),
+            y: min(max(point.y, area.minY + 5), area.maxY - 5),
+            shape: IdleMarkerShape.allCases.randomElement() ?? .circle,
+            color: randomIdleMarkerColor()
+        )
+        idleMarkers.append(marker)
+        if idleMarkers.count > Self.maximumIdleMarkerCount {
+            idleMarkers.removeFirst(idleMarkers.count - Self.maximumIdleMarkerCount)
+        }
+        idleTargetHeadX = nil
+        idleWalkDirection = nil
+        needsDisplay = true
+    }
+
+    private func consumeReachedIdleMarkers(style: TouchBarRobotPetStyle) {
+        let centerX = petCenterX(style: style)
+        let centerY = bounds.midY
+        let beforeCount = idleMarkers.count
+        idleMarkers.removeAll { marker in
+            let dx = marker.x - centerX
+            let dy = marker.y - centerY
+            return sqrt(dx * dx + dy * dy) < 12
+        }
+        if beforeCount != idleMarkers.count {
+            idleTargetHeadX = nil
+            idleWalkDirection = nil
+            if idleMarkers.isEmpty {
+                scheduleNextIdleMove(from: Date().timeIntervalSinceReferenceDate)
+            }
+        }
+    }
+
+    private func clampedIdleHeadX(for style: TouchBarRobotPetStyle) -> CGFloat {
+        let range = idleHeadRange(for: style)
+        let current = idleHeadX ?? range.lowerBound
+        let clamped = min(max(current, range.lowerBound), range.upperBound)
+        idleHeadX = clamped
+        return clamped
+    }
+
+    private func idleHeadRange(for style: TouchBarRobotPetStyle) -> ClosedRange<CGFloat> {
+        let sideModuleAllowance = CGFloat(style.hasSideModules ? style.sideModuleWidth : 0)
+        let inset = CGFloat(5) + sideModuleAllowance
+        let minX = bounds.minX + idleTextReservedWidth() + inset
+        let maxX = max(minX, bounds.maxX - CGFloat(style.headWidth) - inset)
+        return minX...maxX
+    }
+
+    private func idleMovementArea() -> NSRect {
+        let minX = bounds.minX + idleTextReservedWidth()
+        return NSRect(
+            x: minX,
+            y: bounds.minY,
+            width: max(0, bounds.maxX - minX),
+            height: bounds.height
+        )
+    }
+
+    private func idleMarkerXRange(for style: TouchBarRobotPetStyle) -> ClosedRange<CGFloat> {
+        let headRange = idleHeadRange(for: style)
+        let halfHeadWidth = CGFloat(style.headWidth) / 2
+        let minX = headRange.lowerBound + halfHeadWidth
+        let maxX = max(minX, headRange.upperBound + halfHeadWidth)
+        return minX...maxX
+    }
+
+    private func petCenterX(style: TouchBarRobotPetStyle) -> CGFloat {
+        clampedIdleHeadX(for: style) + CGFloat(style.headWidth) / 2
+    }
+
+    private func trimMarkersToPlayableArea() {
+        let style = TouchBarRobotPetDrawingPolicy.style(for: .idle, frameIndex: frameIndex)
+        let area = idleMovementArea()
+        let reachableX = idleMarkerXRange(for: style)
+        idleMarkers.removeAll { marker in
+            marker.x < reachableX.lowerBound
+                || marker.x > reachableX.upperBound
+                || !area.insetBy(dx: -2, dy: -2).contains(NSPoint(x: marker.x, y: marker.y))
+        }
+    }
+
+    private func idleTextReservedWidth() -> CGFloat {
+        guard usesIdlePlayground, mood == .idle else { return 0 }
+        let text = idleText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return 0 }
+        let measuredWidth = ceil((text as NSString).size(withAttributes: idleTextAttributes()).width)
+        return min(measuredWidth, textMaximumWidth()) + 14
+    }
+
+    private func textMaximumWidth() -> CGFloat {
+        let minimumPetTrackWidth: CGFloat = 230
+        return max(0, bounds.width - minimumPetTrackWidth)
+    }
+
+    private func idleTextAttributes() -> [NSAttributedString.Key: Any] {
+        [
+            .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+            .foregroundColor: NSColor.labelColor.withAlphaComponent(0.92)
+        ]
+    }
+
+    private func randomIdleMarkerColor() -> NSColor {
+        [
+            NSColor.systemBlue,
+            NSColor.systemCyan,
+            NSColor.systemGreen,
+            NSColor.systemOrange,
+            NSColor.systemPink,
+            NSColor.systemPurple
+        ].randomElement()?.withAlphaComponent(0.86) ?? NSColor.systemBlue.withAlphaComponent(0.86)
     }
 }
 
@@ -1539,6 +2016,7 @@ private extension Array {
 @MainActor
 private final class UserAwareTouchBarScrollView: NSScrollView {
     var onUserInteraction: (() -> Void)?
+    var onDocumentPress: ((NSPoint) -> Bool)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1556,11 +2034,19 @@ private final class UserAwareTouchBarScrollView: NSScrollView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if let documentView, onDocumentPress?(documentView.convert(event.locationInWindow, from: nil)) == true {
+            return
+        }
         onUserInteraction?()
         super.mouseDown(with: event)
     }
 
     override func touchesBegan(with event: NSEvent) {
+        if let documentView,
+           let touch = event.touches(matching: .touching, in: self).first,
+           onDocumentPress?(touch.location(in: documentView)) == true {
+            return
+        }
         onUserInteraction?()
         super.touchesBegan(with: event)
     }

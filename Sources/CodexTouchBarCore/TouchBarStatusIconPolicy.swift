@@ -101,7 +101,7 @@ public struct TouchBarProjectStatusFrame: Equatable {
 
 public enum TouchBarProjectStatusLayout {
     public static func frame(height: Double = TouchBarLayoutMetrics.detailViewportHeight) -> TouchBarProjectStatusFrame {
-        TouchBarProjectStatusFrame(
+        return TouchBarProjectStatusFrame(
             width: 42,
             height: height,
             buttonWidth: 0,
