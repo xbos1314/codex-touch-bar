@@ -187,6 +187,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
             idleTargetName: idleTargetName(),
             language: settings.displayLanguage
         )
+        let statusBarContent = readingDocument.map {
+            (text: $0.text, key: "reading|\($0.id)")
+        } ?? (text: codexDetail.text, key: "codex|\(state.sessionId ?? "-")|\(codexDetail.text)")
         if let readingDocument, let touchBarController {
             let progress = touchBarController.applyReading(
                 document: readingDocument,
@@ -226,7 +229,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
             state: state,
             language: settings.displayLanguage,
             statusBarContentEnabled: settings.statusBarContentEnabled,
-            statusBarDetail: codexDetail,
+            statusBarContentText: statusBarContent.text,
+            statusBarContentKey: statusBarContent.key,
             sessions: availableSessions,
             sessionSelectionMode: sessionSelectionMode,
             paused: paused,
@@ -454,6 +458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
         do {
             let document = try ReadingFileLoader.load(from: url)
             readingDocument = document
+            settings.statusBarContentEnabled = true
             settings.lastReadingFilePath = url.path
             readingPageIndex = settings.readingPageIndex(forFilePath: url.path)
             readingPageCount = 0

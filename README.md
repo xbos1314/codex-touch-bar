@@ -33,15 +33,15 @@ The Touch Bar experience is designed for MacBook Pro models with a physical Touc
 - Manual session lock: tap the left Touch Bar pet entry to open the session selector and lock the display to a specific session. The selector supports horizontal swiping; the menu bar also provides `AUTO` plus the 10 most recently active sessions.
 - Status pet: a minimal robot pet represents idle, running, approval wait, completed, failed, and reading states.
 - Detail display: supports both scrolling and paging modes, with independent speed controls for each. User interaction pauses automatic scrolling or paging for the current message; automatic behavior resumes when a new message appears.
-- Menu bar content: optionally replaces the Codex menu bar icon with the current detail text. Long content automatically pages in place with its own speed control; clicking still opens the standard app menu.
+- Menu bar content: optionally shows the current detail text alongside a compact colored status icon. Long content automatically pages in place with its own speed control; clicking still opens the standard app menu.
 - Approval display: pending Codex tool approvals are shown directly on the Touch Bar, with a distinct approval pet color.
 - Open current session: available from both the menu bar and the right side of the Touch Bar.
 - Manual idle: after completion, the idle action can dismiss the completed state and return to an idle message.
 - Idle interaction: tap the pet to open the session selector, or tap its free movement area to place a colored marker. The pet walks to and consumes markers in order with a blink-and-hop animation, retaining the color of the last marker it consumes; up to five markers can be present at once.
 - Completion sound: plays a short local sound when a task completes.
 - Completion speech: can automatically read the final assistant reply aloud. The menu bar exposes enablement, voice selection, speech rate, and pitch controls.
-- Reading mode: on Macs with a physical Touch Bar, open local text files for a night-reading style Touch Bar view. It supports TXT, Markdown, Word documents, and common source code files.
-- Reading progress: remembers the latest file and page, supports continue reading, auto-page speed settings, and paragraph navigation.
+- Reading mode: open local text files for a night-reading style Touch Bar view or automatic menu bar reader. Opening a file switches menu bar content to the document and enables it automatically. It supports TXT, Markdown, Word documents, and common source code files.
+- Reading progress: on a physical Touch Bar, remembers the latest file and page, supports continue reading, auto-page speed settings, and paragraph navigation. Menu bar reading uses its independent status bar paging speed.
 
 ## Touch Bar Layout
 
@@ -67,9 +67,9 @@ Idle messages:
 The menu is grouped by purpose:
 
 - Codex session: current session, project, a session-switching submenu with `AUTO` and the 10 most recent sessions, open current session, completion speech, voice, rate, and pitch.
-- Reading: current file, path, progress, open file, continue reading, exit reading mode, and auto-page speed.
+- Reading: current file, path, progress, open file, continue reading, and auto-page speed. Exit reading mode appears only while a file is open. This group remains available on Macs without a physical Touch Bar for menu bar reading.
 - Touch Bar: on supported hardware, a fixed Control Strip entry, detail display mode, scrolling speed, and paging speed. This group is hidden when no physical Touch Bar is detected at launch.
-- Menu Bar: optional current-detail display that replaces the Codex icon, automatically pages long content, and exposes an independent paging speed.
+- Menu Bar: optional current-detail display with a compact colored status icon, automatically pages long content, and exposes an independent paging speed.
 - General: pause updates, refresh now, and quit.
 
 ## Agent Installation

@@ -153,7 +153,8 @@ final class MenuBarController {
         state: CodexDisplayState,
         language: DisplayLanguage,
         statusBarContentEnabled: Bool,
-        statusBarDetail: CodexDetailPresentation,
+        statusBarContentText: String,
+        statusBarContentKey: String,
         sessions: [CodexSessionFile],
         sessionSelectionMode: CodexSessionSelectionMode,
         paused: Bool,
@@ -184,8 +185,8 @@ final class MenuBarController {
         }
         updateStatusBarContent(
             isEnabled: statusBarContentEnabled,
-            text: statusBarDetail.text,
-            sessionID: state.sessionId,
+            text: statusBarContentText,
+            contentKey: statusBarContentKey,
             language: language,
             pageSpeed: statusBarPageSpeed
         )
@@ -236,6 +237,7 @@ final class MenuBarController {
         updateCompletionSpeechRateMenu(selectedRate: completionSpeechRate)
         updateCompletionSpeechPitchMenu(selectedPitch: completionSpeechPitch)
         exitReadingModeItem.isEnabled = readingPresentation.isReadingActive
+        exitReadingModeItem.isHidden = !readingPresentation.isReadingActive
         statusBarContentItem.state = statusBarContentEnabled ? .on : .off
     }
 
@@ -320,29 +322,21 @@ final class MenuBarController {
             case .completionSpeechPitchMenu:
                 menu.addItem(completionSpeechPitchItem)
             case .readingSectionHeader:
-                guard isTouchBarAvailable else { continue }
                 menu.addItem(.separator())
                 menu.addItem(readingSectionItem)
             case .readingFileInfo:
-                guard isTouchBarAvailable else { continue }
                 menu.addItem(readingFileItem)
             case .readingPathInfo:
-                guard isTouchBarAvailable else { continue }
                 menu.addItem(readingPathItem)
             case .readingProgressInfo:
-                guard isTouchBarAvailable else { continue }
                 menu.addItem(readingProgressItem)
             case .openReadingFile:
-                guard isTouchBarAvailable else { continue }
                 menu.addItem(openReadingFileItem)
             case .continueReading:
-                guard isTouchBarAvailable else { continue }
                 menu.addItem(continueReadingItem)
             case .exitReadingMode:
-                guard isTouchBarAvailable else { continue }
                 menu.addItem(exitReadingModeItem)
             case .readingAutoPageSpeedHeader:
-                guard isTouchBarAvailable else { continue }
                 menu.addItem(readingAutoPageSpeedItem)
             case .detailDisplayHeader:
                 guard isTouchBarAvailable else { continue }
@@ -535,7 +529,7 @@ final class MenuBarController {
     private func updateStatusBarContent(
         isEnabled: Bool,
         text: String,
-        sessionID: String?,
+        contentKey: String,
         language: DisplayLanguage,
         pageSpeed: DetailDisplaySpeed
     ) {
@@ -546,7 +540,6 @@ final class MenuBarController {
             return
         }
 
-        let contentKey = "\(sessionID ?? "-")|\(text)"
         let pageSpeedChanged = statusBarPageSpeed != pageSpeed
         statusBarPageSpeed = pageSpeed
         if statusBarContentKey != contentKey || pageSpeedChanged {
