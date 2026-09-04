@@ -31,6 +31,7 @@ The Touch Bar experience is designed for MacBook Pro models with a physical Touc
 - Codex session display: reads local Codex JSONL session files under `~/.codex/sessions` and shows the latest user message, assistant reply, and tool activity.
 - Automatic following: `AUTO` mode follows the most recently active primary Codex session.
 - Manual session lock: tap the left Touch Bar pet entry to open the session selector and lock the display to a specific session. The selector supports horizontal swiping; the menu bar also provides `AUTO` plus the 10 most recently active sessions.
+- Account quota: the top menu section shows the signed-in Codex subscription plan, main quota usage and reset time, plus the number and earliest expiration of available rate-limit resets. It refreshes when requested and every minute while updates are active.
 - Status pet: a minimal robot pet represents idle, running, approval wait, completed, failed, and reading states.
 - Detail display: supports both scrolling and paging modes, with independent speed controls for each. User interaction pauses automatic scrolling or paging for the current message; automatic behavior resumes when a new message appears.
 - Menu bar content: optionally shows the current detail text alongside a compact colored status icon. Long content automatically pages in place with its own speed control; clicking still opens the standard app menu.
@@ -66,6 +67,7 @@ Idle messages:
 
 The menu is grouped by purpose:
 
+- Quota: the signed-in subscription plan, main Codex quota percentage and reset time, and available rate-limit reset count with its expiration. This is always the first menu section and does not require Touch Bar hardware.
 - Codex session: current session, project, a session-switching submenu with `AUTO` and the 10 most recent sessions, open current session, completion speech, voice, rate, and pitch.
 - Reading: current file, path, progress, open file, continue reading, and auto-page speed. Exit reading mode appears only while a file is open. This group remains available on Macs without a physical Touch Bar for menu bar reading.
 - Touch Bar: on supported hardware, a fixed Control Strip entry, detail display mode, scrolling speed, and paging speed. This group is hidden when no physical Touch Bar is detected at launch.
