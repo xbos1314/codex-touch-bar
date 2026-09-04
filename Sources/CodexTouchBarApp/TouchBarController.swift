@@ -1300,6 +1300,14 @@ private final class TouchBarPetView: NSView {
     }
 
     private static let maximumIdleMarkerCount = 5
+    private static let idleConsumptionJumpOffsets: [Double] = [0, 2, 3.5, 2, 0]
+    private static let idleConsumptionEyeShapes: [TouchBarRobotPetEyeShape] = [
+        .circle,
+        .smallCircle,
+        .closedLine,
+        .smallCircle,
+        .circle
+    ]
 
     var onPress: (() -> Void)?
 
@@ -1321,6 +1329,8 @@ private final class TouchBarPetView: NSView {
                 idleWalkDirection = nil
                 if !usesIdlePlayground {
                     idleMarkers.removeAll()
+                    idleAccentColor = nil
+                    idleConsumptionFrame = nil
                 }
                 scheduleNextIdleMove()
                 invalidateIntrinsicContentSize()
@@ -1337,6 +1347,8 @@ private final class TouchBarPetView: NSView {
                     idleTargetHeadX = nil
                     idleWalkDirection = nil
                     idleMarkers.removeAll()
+                    idleAccentColor = nil
+                    idleConsumptionFrame = nil
                 }
                 needsDisplay = true
             }
@@ -1352,6 +1364,8 @@ private final class TouchBarPetView: NSView {
     private var idleWalkDirection: IdleWalkDirection?
     private var nextIdleMoveAt: TimeInterval = 0
     private var idleMarkers: [IdleMarker] = []
+    private var idleAccentColor: NSColor?
+    private var idleConsumptionFrame: Int?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1383,11 +1397,12 @@ private final class TouchBarPetView: NSView {
         let walkDirection = usesIdlePlayground && mood == .idle
             ? idleWalkDirection?.drawingDirection
             : nil
-        let style = TouchBarRobotPetDrawingPolicy.style(
+        var style = TouchBarRobotPetDrawingPolicy.style(
             for: mood,
             frameIndex: frameIndex,
             walkDirection: walkDirection
         )
+        applyIdleConsumptionPresentation(to: &style)
         let headRect = robotHeadRect(for: style)
         drawSideModules(around: headRect, style: style)
         drawAntennas(on: headRect, style: style)
@@ -1703,6 +1718,9 @@ private final class TouchBarPetView: NSView {
     private func bodyColor(for tone: TouchBarRobotPetTone) -> NSColor {
         switch tone {
         case .idle:
+            if let idleAccentColor {
+                return idleAccentColor.withAlphaComponent(0.28)
+            }
             return NSColor(calibratedRed: 0.25, green: 0.36, blue: 0.48, alpha: 0.28)
         case .thinking:
             return NSColor.systemPurple.withAlphaComponent(0.24)
@@ -1724,6 +1742,9 @@ private final class TouchBarPetView: NSView {
     private func strokeColor(for tone: TouchBarRobotPetTone) -> NSColor {
         switch tone {
         case .idle:
+            if let idleAccentColor {
+                return idleAccentColor.withAlphaComponent(0.9)
+            }
             return NSColor(calibratedRed: 0.46, green: 0.62, blue: 0.8, alpha: 0.9)
         case .thinking:
             return NSColor.systemPurple.withAlphaComponent(0.82)
@@ -1800,6 +1821,7 @@ private final class TouchBarPetView: NSView {
                 let elapsed = min(0.36, max(0.01, now - (self.lastAnimationTickAt ?? now)))
                 self.lastAnimationTickAt = now
                 self.frameIndex = (self.frameIndex + 1) % 36
+                self.advanceIdleConsumptionAnimation()
                 self.updateIdleWalk(now: now, elapsed: elapsed)
                 self.needsDisplay = true
             }
@@ -1909,21 +1931,49 @@ private final class TouchBarPetView: NSView {
     }
 
     private func consumeReachedIdleMarkers(style: TouchBarRobotPetStyle) {
-        let centerX = petCenterX(style: style)
-        let centerY = bounds.midY
+        let headRect = robotHeadRect(for: style)
+        let sideModuleAllowance = CGFloat(style.hasSideModules ? style.sideModuleWidth : 0)
+        let contactRect = headRect.insetBy(dx: -(sideModuleAllowance + 4), dy: -6)
         let beforeCount = idleMarkers.count
+        let consumedMarker = idleMarkers.first { marker in
+            contactRect.contains(NSPoint(x: marker.x, y: marker.y))
+        }
         idleMarkers.removeAll { marker in
-            let dx = marker.x - centerX
-            let dy = marker.y - centerY
-            return sqrt(dx * dx + dy * dy) < 12
+            contactRect.contains(NSPoint(x: marker.x, y: marker.y))
         }
         if beforeCount != idleMarkers.count {
+            idleAccentColor = consumedMarker?.color
+            idleConsumptionFrame = 0
             idleTargetHeadX = nil
             idleWalkDirection = nil
             if idleMarkers.isEmpty {
                 scheduleNextIdleMove(from: Date().timeIntervalSinceReferenceDate)
             }
         }
+    }
+
+    private func advanceIdleConsumptionAnimation() {
+        guard let idleConsumptionFrame else { return }
+        let nextFrame = idleConsumptionFrame + 1
+        self.idleConsumptionFrame = nextFrame < Self.idleConsumptionJumpOffsets.count ? nextFrame : nil
+    }
+
+    private func applyIdleConsumptionPresentation(to style: inout TouchBarRobotPetStyle) {
+        guard usesIdlePlayground,
+              mood == .idle,
+              let idleConsumptionFrame,
+              Self.idleConsumptionJumpOffsets.indices.contains(idleConsumptionFrame)
+        else {
+            return
+        }
+
+        let eyeShape = Self.idleConsumptionEyeShapes[idleConsumptionFrame]
+        style.verticalOffset += Self.idleConsumptionJumpOffsets[idleConsumptionFrame]
+        style.faceExpression = TouchBarRobotPetFaceExpression(
+            leftEye: eyeShape,
+            rightEye: eyeShape,
+            mouth: .flat
+        )
     }
 
     private func clampedIdleHeadX(for style: TouchBarRobotPetStyle) -> CGFloat {
@@ -1953,10 +2003,12 @@ private final class TouchBarPetView: NSView {
     }
 
     private func idleMarkerXRange(for style: TouchBarRobotPetStyle) -> ClosedRange<CGFloat> {
+        let movementArea = idleMovementArea()
         let headRange = idleHeadRange(for: style)
-        let halfHeadWidth = CGFloat(style.headWidth) / 2
-        let minX = headRange.lowerBound + halfHeadWidth
-        let maxX = max(minX, headRange.upperBound + halfHeadWidth)
+        let sideModuleAllowance = CGFloat(style.hasSideModules ? style.sideModuleWidth : 0)
+        let edgeInset = sideModuleAllowance + 5
+        let minX = max(movementArea.minX + edgeInset, headRange.lowerBound - sideModuleAllowance)
+        let maxX = max(minX, min(movementArea.maxX - edgeInset, headRange.upperBound + CGFloat(style.headWidth) + sideModuleAllowance))
         return minX...maxX
     }
 

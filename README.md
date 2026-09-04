@@ -36,7 +36,7 @@ The app is designed for MacBook Pro models with a physical Touch Bar, such as th
 - Approval display: pending Codex tool approvals are shown directly on the Touch Bar, with a distinct approval pet color.
 - Open current session: available from both the menu bar and the right side of the Touch Bar.
 - Manual idle: after completion, the idle action can dismiss the completed state and return to an idle message.
-- Idle interaction: tap the pet to open the session selector, or tap its free movement area to place a colored marker. The pet walks to and consumes markers in order; up to five markers can be present at once.
+- Idle interaction: tap the pet to open the session selector, or tap its free movement area to place a colored marker. The pet walks to and consumes markers in order with a blink-and-hop animation, retaining the color of the last marker it consumes; up to five markers can be present at once.
 - Completion sound: plays a short local sound when a task completes.
 - Completion speech: can automatically read the final assistant reply aloud. The menu bar exposes enablement, voice selection, speech rate, and pitch controls.
 - Reading mode: open local text files for a night-reading style Touch Bar view. It supports TXT, Markdown, Word documents, and common source code files.
