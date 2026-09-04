@@ -14,16 +14,15 @@ public enum MenuBarCommand: Equatable, Sendable {
     case openReadingFile
     case continueReading
     case exitReadingMode
-    case touchBarSectionHeader
-    case touchBarModeInfo
-    case toggleAlwaysOn
-    case detailDisplayHeader
-    case selectScrollingDetailDisplay
-    case selectPagingDetailDisplay
     case readingAutoPageSpeedHeader
     case selectSlowReadingAutoPageSpeed
     case selectNormalReadingAutoPageSpeed
     case selectFastReadingAutoPageSpeed
+    case touchBarSectionHeader
+    case touchBarModeInfo
+    case detailDisplayHeader
+    case selectScrollingDetailDisplay
+    case selectPagingDetailDisplay
     case togglePause
     case refreshNow
     case showTouchBarHost
@@ -53,7 +52,6 @@ public enum MenuBarMenuPlan {
         .selectFastReadingAutoPageSpeed,
         .touchBarSectionHeader,
         .touchBarModeInfo,
-        .toggleAlwaysOn,
         .detailDisplayHeader,
         .selectScrollingDetailDisplay,
         .selectPagingDetailDisplay,

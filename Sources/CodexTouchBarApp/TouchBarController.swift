@@ -31,7 +31,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
     weak var delegate: TouchBarControllerDelegate?
 
     private let projectContainerView = NSView()
-    private let detailLabel = NSTextField(labelWithString: "等待 Codex 活动")
+    private let detailLabel = NSTextField(labelWithString: "Waiting for Codex activity")
     private let detailIconView = NSImageView()
     private let detailDocumentView = NSView()
     private let detailScrollView = UserAwareTouchBarScrollView()
@@ -88,6 +88,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
     private var currentBasePetMood: TouchBarPetMood = .idle
     private var completionSoundState = CompletionSoundState()
     private let completionSound = NSSound(named: NSSound.Name("Ping"))
+    private var displayLanguage: DisplayLanguage?
 
     lazy var touchBar: NSTouchBar = {
         let bar = NSTouchBar()
@@ -129,6 +130,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
     func apply(
         state: CodexDisplayState,
         detail: CodexDetailPresentation,
+        language: DisplayLanguage,
         displayMode: TouchBarDetailDisplayMode,
         sessions: [CodexSessionFile],
         selectionMode: CodexSessionSelectionMode,
@@ -138,6 +140,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         completionSpeechRate: CompletionSpeechRate,
         completionSpeechPitch: CompletionSpeechPitch
     ) {
+        updateLocalization(language)
         let leavingReadingMode = readingDocument != nil
         if leavingReadingMode {
             readingDocument = nil
@@ -331,8 +334,10 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
     func applyReading(
         document: ReadingDocument,
         requestedPageIndex: Int,
-        autoPageInterval: TimeInterval
+        autoPageInterval: TimeInterval,
+        language: DisplayLanguage
     ) -> TouchBarReadingProgress {
+        updateLocalization(language)
         let documentChanged = readingDocument?.id != document.id
         let intervalChanged = abs(readingAutoPageInterval - autoPageInterval) > 0.001
         readingAutoPageInterval = autoPageInterval
@@ -520,8 +525,8 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         openSessionButton.image = openSessionImage()
         openSessionButton.imagePosition = .imageOnly
         openSessionButton.imageScaling = .scaleProportionallyDown
-        openSessionButton.toolTip = "打开当前会话"
-        openSessionButton.setAccessibilityLabel("打开当前会话")
+        openSessionButton.toolTip = "Open Current Session"
+        openSessionButton.setAccessibilityLabel("Open Current Session")
         openSessionButton.alignment = .center
         openSessionButton.translatesAutoresizingMaskIntoConstraints = false
         openSessionButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
@@ -536,8 +541,8 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         idleSessionButton.image = idleSessionImage()
         idleSessionButton.imagePosition = .imageOnly
         idleSessionButton.imageScaling = .scaleProportionallyDown
-        idleSessionButton.toolTip = "收起为空闲"
-        idleSessionButton.setAccessibilityLabel("收起为空闲")
+        idleSessionButton.toolTip = "Dismiss to Idle"
+        idleSessionButton.setAccessibilityLabel("Dismiss to Idle")
         idleSessionButton.alignment = .center
         idleSessionButton.translatesAutoresizingMaskIntoConstraints = false
         idleSessionButton.widthAnchor.constraint(equalToConstant: 32).isActive = true
@@ -551,8 +556,8 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         readingAutoPageButton.bezelStyle = .rounded
         readingAutoPageButton.imagePosition = .imageOnly
         readingAutoPageButton.imageScaling = .scaleProportionallyDown
-        readingAutoPageButton.toolTip = "自动翻页"
-        readingAutoPageButton.setAccessibilityLabel("自动翻页")
+        readingAutoPageButton.toolTip = "Auto Page"
+        readingAutoPageButton.setAccessibilityLabel("Auto Page")
         readingAutoPageButton.alignment = .center
         readingAutoPageButton.translatesAutoresizingMaskIntoConstraints = false
         readingAutoPageButton.widthAnchor.constraint(equalToConstant: 36).isActive = true
@@ -565,13 +570,13 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
             readingPreviousPageButton,
             symbolNames: ["chevron.up", "arrow.up"],
             action: #selector(previousReadingPage),
-            accessibilityDescription: "上一页"
+            accessibilityDescription: "Previous Page"
         )
         configureReadingPageButton(
             readingNextPageButton,
             symbolNames: ["chevron.down", "arrow.down"],
             action: #selector(nextReadingPage),
-            accessibilityDescription: "下一页"
+            accessibilityDescription: "Next Page"
         )
     }
 
@@ -582,13 +587,13 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         readingParagraphSelectorButton.bezelStyle = .rounded
         readingParagraphSelectorButton.image = symbolImage(
             symbolNames: ["paragraphsign", "list.bullet"],
-            accessibilityDescription: "选择段落",
+            accessibilityDescription: "Select Paragraph",
             pointSize: 14
         )
         readingParagraphSelectorButton.imagePosition = .imageOnly
         readingParagraphSelectorButton.imageScaling = .scaleProportionallyDown
-        readingParagraphSelectorButton.toolTip = "选择段落"
-        readingParagraphSelectorButton.setAccessibilityLabel("选择段落")
+        readingParagraphSelectorButton.toolTip = "Select Paragraph"
+        readingParagraphSelectorButton.setAccessibilityLabel("Select Paragraph")
         readingParagraphSelectorButton.alignment = .center
         readingParagraphSelectorButton.translatesAutoresizingMaskIntoConstraints = false
         readingParagraphSelectorButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
@@ -601,7 +606,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         petView.translatesAutoresizingMaskIntoConstraints = true
         petView.frame = NSRect(x: frame.iconX, y: frame.iconY, width: frame.iconSize, height: frame.height)
         petView.autoresizingMask = [.width, .height]
-        petView.toolTip = "切换会话"
+        petView.toolTip = "Switch Session"
         petView.onPress = { [weak self] in
             self?.toggleSessionSelector()
         }
@@ -610,7 +615,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
 
     private func configureIdlePlaygroundView() {
         idlePlaygroundView.translatesAutoresizingMaskIntoConstraints = false
-        idlePlaygroundView.toolTip = "切换会话"
+        idlePlaygroundView.toolTip = "Switch Session"
         idlePlaygroundView.onPress = { [weak self] in
             self?.toggleSessionSelector()
         }
@@ -643,18 +648,18 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         button.heightAnchor.constraint(equalToConstant: CGFloat(TouchBarLayoutMetrics.detailViewportHeight)).isActive = true
     }
 
-    private func openSessionImage() -> NSImage? {
+    private func openSessionImage(accessibilityDescription: String = "Open Current Session") -> NSImage? {
         symbolImage(
             symbolNames: ["arrow.up.forward", "arrow.up.right", "arrowshape.turn.up.right"],
-            accessibilityDescription: "打开当前会话",
+            accessibilityDescription: accessibilityDescription,
             pointSize: 13
         )
     }
 
-    private func idleSessionImage() -> NSImage? {
+    private func idleSessionImage(accessibilityDescription: String = "Dismiss to Idle") -> NSImage? {
         symbolImage(
             symbolNames: ["moon.zzz.fill", "moon.zzz", "xmark.circle"],
-            accessibilityDescription: "收起为空闲",
+            accessibilityDescription: accessibilityDescription,
             pointSize: 13
         )
     }
@@ -814,7 +819,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         readingAutoPageButton.state = readingAutoPageEnabled ? .on : .off
         readingAutoPageButton.image = symbolImage(
             symbolNames: readingAutoPageEnabled ? ["pause.fill", "pause"] : ["play.fill", "play"],
-            accessibilityDescription: "自动翻页",
+            accessibilityDescription: localizedText(english: "Auto Page", chinese: "自动翻页"),
             pointSize: 13
         )
         readingAutoPageButton.isEnabled = readingPages.count > 1
@@ -863,7 +868,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
 
         let buttons: [NSButton]
         if readingParagraphs.isEmpty {
-            let button = NSButton(title: "No paragraphs", target: nil, action: nil)
+            let button = NSButton(title: localizedText(english: "No paragraphs", chinese: "没有段落"), target: nil, action: nil)
             configureSessionButton(button)
             button.isEnabled = false
             buttons = [button]
@@ -896,6 +901,57 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         if isShowingReadingParagraphSelector {
             showReadingParagraphDocument(offset: previousOffset)
         }
+    }
+
+    private func updateLocalization(_ language: DisplayLanguage) {
+        guard displayLanguage != language else { return }
+        displayLanguage = language
+
+        let openSession = localizedText(english: "Open Current Session", chinese: "打开当前会话")
+        let dismissToIdle = localizedText(english: "Dismiss to Idle", chinese: "收起为空闲")
+        let autoPage = localizedText(english: "Auto Page", chinese: "自动翻页")
+        let previousPage = localizedText(english: "Previous Page", chinese: "上一页")
+        let nextPage = localizedText(english: "Next Page", chinese: "下一页")
+        let selectParagraph = localizedText(english: "Select Paragraph", chinese: "选择段落")
+        let switchSession = localizedText(english: "Switch Session", chinese: "切换会话")
+
+        openSessionButton.toolTip = openSession
+        openSessionButton.setAccessibilityLabel(openSession)
+        openSessionButton.image = openSessionImage(accessibilityDescription: openSession)
+        idleSessionButton.toolTip = dismissToIdle
+        idleSessionButton.setAccessibilityLabel(dismissToIdle)
+        idleSessionButton.image = idleSessionImage(accessibilityDescription: dismissToIdle)
+        readingAutoPageButton.toolTip = autoPage
+        readingAutoPageButton.setAccessibilityLabel(autoPage)
+        readingPreviousPageButton.toolTip = previousPage
+        readingPreviousPageButton.setAccessibilityLabel(previousPage)
+        readingPreviousPageButton.image = symbolImage(
+            symbolNames: ["chevron.up", "arrow.up"],
+            accessibilityDescription: previousPage,
+            pointSize: 14
+        )
+        readingNextPageButton.toolTip = nextPage
+        readingNextPageButton.setAccessibilityLabel(nextPage)
+        readingNextPageButton.image = symbolImage(
+            symbolNames: ["chevron.down", "arrow.down"],
+            accessibilityDescription: nextPage,
+            pointSize: 14
+        )
+        readingParagraphSelectorButton.toolTip = selectParagraph
+        readingParagraphSelectorButton.setAccessibilityLabel(selectParagraph)
+        readingParagraphSelectorButton.image = symbolImage(
+            symbolNames: ["paragraphsign", "list.bullet"],
+            accessibilityDescription: selectParagraph,
+            pointSize: 14
+        )
+        petView.toolTip = switchSession
+        idlePlaygroundView.toolTip = switchSession
+        updateReadingAutoPageButton()
+        updateReadingParagraphButtons()
+    }
+
+    private func localizedText(english: String, chinese: String) -> String {
+        displayLanguage == .simplifiedChinese ? chinese : english
     }
 
     private func showDetailDocument() {

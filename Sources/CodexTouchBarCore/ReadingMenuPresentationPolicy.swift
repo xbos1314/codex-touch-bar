@@ -30,7 +30,8 @@ public enum ReadingMenuPresentationPolicy {
         fileName: String?,
         filePath: String?,
         progressTitle: String,
-        continueReadingFileName: String?
+        continueReadingFileName: String?,
+        language: DisplayLanguage = .english
     ) -> ReadingMenuPresentation {
         let normalizedFileName = fileName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedFilePath = filePath?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -39,12 +40,12 @@ public enum ReadingMenuPresentationPolicy {
         let displayFilePath = displayValue(normalizedFilePath)
         let canContinueReading = normalizedContinueFileName?.isEmpty == false
         return ReadingMenuPresentation(
-            fileTitle: "Reading File: \(displayFileName)",
-            pathTitle: "Reading Path: \(displayFilePath)",
+            fileTitle: language == .english ? "Reading File: \(displayFileName)" : "阅读文件：\(displayFileName)",
+            pathTitle: language == .english ? "Reading Path: \(displayFilePath)" : "阅读路径：\(displayFilePath)",
             progressTitle: progressTitle,
             continueReadingTitle: canContinueReading
-                ? "Continue Reading: \(normalizedContinueFileName!)"
-                : "Continue Reading",
+                ? (language == .english ? "Continue Reading: \(normalizedContinueFileName!)" : "继续阅读：\(normalizedContinueFileName!)")
+                : (language == .english ? "Continue Reading" : "继续阅读"),
             isReadingActive: normalizedFileName?.isEmpty == false || normalizedFilePath?.isEmpty == false,
             canContinueReading: canContinueReading
         )

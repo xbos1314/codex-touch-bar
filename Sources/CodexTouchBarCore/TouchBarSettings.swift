@@ -1,8 +1,8 @@
 import Foundation
 
-public enum TouchBarPresentationMode: String, Equatable {
-    case officialHostWindow
-    case experimentalAlwaysOn
+public enum DisplayLanguage: String, CaseIterable, Equatable, Sendable {
+    case english
+    case simplifiedChinese
 }
 
 public enum TouchBarDetailDisplayMode: String, Equatable {
@@ -20,7 +20,7 @@ public enum TouchBarDetailDisplayMode: String, Equatable {
 }
 
 public struct TouchBarSettings {
-    private static let presentationModeKey = "touchBar.presentationMode"
+    private static let displayLanguageKey = "display.language"
     private static let detailDisplayModeKey = "touchBar.detailDisplayMode"
     private static let completionSpeechEnabledKey = "completion.speechEnabled"
     private static let completionSpeechVoiceIdentifierKey = "completion.speechVoiceIdentifier"
@@ -35,16 +35,16 @@ public struct TouchBarSettings {
         self.defaults = defaults
     }
 
-    public var presentationMode: TouchBarPresentationMode {
+    public var displayLanguage: DisplayLanguage {
         get {
-            guard let rawValue = defaults.string(forKey: Self.presentationModeKey),
-                  let mode = TouchBarPresentationMode(rawValue: rawValue) else {
-                return .officialHostWindow
+            guard let rawValue = defaults.string(forKey: Self.displayLanguageKey),
+                  let language = DisplayLanguage(rawValue: rawValue) else {
+                return .english
             }
-            return mode
+            return language
         }
         nonmutating set {
-            defaults.set(newValue.rawValue, forKey: Self.presentationModeKey)
+            defaults.set(newValue.rawValue, forKey: Self.displayLanguageKey)
         }
     }
 

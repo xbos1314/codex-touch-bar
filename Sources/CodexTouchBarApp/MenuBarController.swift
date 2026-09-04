@@ -8,13 +8,13 @@ protocol MenuBarControllerDelegate: AnyObject {
     func menuBarDidRequestContinueReading()
     func menuBarDidRequestExitReadingMode()
     func menuBarDidTogglePause()
-    func menuBarDidToggleAlwaysOn()
     func menuBarDidToggleCompletionSpeech()
     func menuBarDidSelectCompletionSpeechVoice(identifier: String?)
     func menuBarDidSelectCompletionSpeechRate(_ rate: CompletionSpeechRate)
     func menuBarDidSelectCompletionSpeechPitch(_ pitch: CompletionSpeechPitch)
     func menuBarDidSelectDetailDisplayMode(_ mode: TouchBarDetailDisplayMode)
     func menuBarDidSelectReadingAutoPageSpeed(_ speed: ReadingAutoPageSpeed)
+    func menuBarDidSelectDisplayLanguage(_ language: DisplayLanguage)
     func menuBarDidRequestRefresh()
 }
 
@@ -46,11 +46,16 @@ final class MenuBarController {
     private let openReadingFileItem = NSMenuItem(title: "Open Reading File...", action: #selector(openReadingFile), keyEquivalent: "f")
     private let continueReadingItem = NSMenuItem(title: "Continue Reading", action: #selector(continueReading), keyEquivalent: "")
     private let exitReadingModeItem = NSMenuItem(title: "Exit Reading Mode", action: #selector(exitReadingMode), keyEquivalent: "")
-    private let alwaysOnItem = NSMenuItem(title: "Experimental Always-On Touch Bar", action: #selector(toggleAlwaysOn), keyEquivalent: "a")
     private let pauseItem = NSMenuItem(title: "Pause Updates", action: #selector(togglePause), keyEquivalent: "p")
+    private let languageItem = NSMenuItem(title: "Language", action: nil, keyEquivalent: "")
+    private let englishLanguageItem = NSMenuItem(title: "English", action: #selector(selectEnglishLanguage), keyEquivalent: "")
+    private let chineseLanguageItem = NSMenuItem(title: "简体中文", action: #selector(selectSimplifiedChineseLanguage), keyEquivalent: "")
+    private let refreshItem = NSMenuItem(title: "Refresh Now", action: #selector(refreshNow), keyEquivalent: "r")
+    private let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     private var completionSpeechVoiceMenuSignature = ""
     private var completionSpeechRateMenuSelection: CompletionSpeechRate?
     private var completionSpeechPitchMenuSelection: CompletionSpeechPitch?
+    private var displayLanguage: DisplayLanguage = .english
 
     init() {
         statusItem.button?.title = ""
@@ -62,8 +67,8 @@ final class MenuBarController {
 
     func apply(
         state: CodexDisplayState,
+        language: DisplayLanguage,
         paused: Bool,
-        presentationMode: TouchBarPresentationMode,
         detailDisplayMode: TouchBarDetailDisplayMode,
         readingAutoPageSpeed: ReadingAutoPageSpeed,
         alwaysOnStatus: String,
@@ -77,22 +82,26 @@ final class MenuBarController {
         completionSpeechRate: CompletionSpeechRate,
         completionSpeechPitch: CompletionSpeechPitch
     ) {
+        let languageChanged = displayLanguage != language
+        displayLanguage = language
+        if languageChanged {
+            completionSpeechVoiceMenuSignature = ""
+            completionSpeechRateMenuSelection = nil
+            completionSpeechPitchMenuSelection = nil
+        }
         let readingPresentation = ReadingMenuPresentationPolicy.presentation(
             fileName: readingFileName,
             filePath: readingFilePath,
             progressTitle: readingProgressTitle,
-            continueReadingFileName: continueReadingFileName
+            continueReadingFileName: continueReadingFileName,
+            language: language
         )
-        sessionItem.title = "Session: \(state.sessionId ?? "-")"
-        projectItem.title = "Project: \(state.projectPath.isEmpty ? "-" : state.projectPath)"
-        touchBarModeItem.title = "Touch Bar: \(alwaysOnStatus)"
+        updateLocalizedTitles(language: language, state: state, paused: paused, detailDisplayMode: detailDisplayMode, readingAutoPageSpeed: readingAutoPageSpeed, alwaysOnStatus: alwaysOnStatus)
         readingFileItem.title = readingPresentation.fileTitle
         readingPathItem.title = readingPresentation.pathTitle
         readingProgressItem.title = readingPresentation.progressTitle
         continueReadingItem.title = readingPresentation.continueReadingTitle
         continueReadingItem.isEnabled = readingPresentation.canContinueReading && !readingPresentation.isReadingActive
-        detailDisplayModeItem.title = "Detail Display: \(detailDisplayMode.menuText)"
-        readingAutoPageSpeedItem.title = "Reading Speed: \(readingAutoPageSpeed.menuText)"
         scrollingDetailItem.state = detailDisplayMode == .scrolling ? .on : .off
         pagingDetailItem.state = detailDisplayMode == .paging ? .on : .off
         slowReadingAutoPageSpeedItem.state = readingAutoPageSpeed == .slow ? .on : .off
@@ -107,8 +116,6 @@ final class MenuBarController {
         updateCompletionSpeechRateMenu(selectedRate: completionSpeechRate)
         updateCompletionSpeechPitchMenu(selectedPitch: completionSpeechPitch)
         exitReadingModeItem.isEnabled = readingPresentation.isReadingActive
-        alwaysOnItem.state = presentationMode == .experimentalAlwaysOn ? .on : .off
-        pauseItem.title = paused ? "Resume Updates" : "Pause Updates"
     }
 
     private func makeMenu() -> NSMenu {
@@ -117,7 +124,6 @@ final class MenuBarController {
         readingSectionItem.isEnabled = false
         touchBarSectionItem.isEnabled = false
 
-        alwaysOnItem.target = self
         scrollingDetailItem.target = self
         pagingDetailItem.target = self
         slowReadingAutoPageSpeedItem.target = self
@@ -129,9 +135,22 @@ final class MenuBarController {
         continueReadingItem.target = self
         exitReadingModeItem.target = self
         pauseItem.target = self
-        let refresh = NSMenuItem(title: "Refresh Now", action: #selector(refreshNow), keyEquivalent: "r")
-        refresh.target = self
-        let quit = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        englishLanguageItem.target = self
+        chineseLanguageItem.target = self
+        refreshItem.target = self
+        let languageMenu = NSMenu()
+        languageMenu.addItem(englishLanguageItem)
+        languageMenu.addItem(chineseLanguageItem)
+        languageItem.submenu = languageMenu
+        let detailDisplayMenu = NSMenu()
+        detailDisplayMenu.addItem(scrollingDetailItem)
+        detailDisplayMenu.addItem(pagingDetailItem)
+        detailDisplayModeItem.submenu = detailDisplayMenu
+        let readingSpeedMenu = NSMenu()
+        readingSpeedMenu.addItem(slowReadingAutoPageSpeedItem)
+        readingSpeedMenu.addItem(normalReadingAutoPageSpeedItem)
+        readingSpeedMenu.addItem(fastReadingAutoPageSpeedItem)
+        readingAutoPageSpeedItem.submenu = readingSpeedMenu
 
         for command in MenuBarMenuPlan.visibleCommands {
             switch command {
@@ -166,38 +185,35 @@ final class MenuBarController {
                 menu.addItem(continueReadingItem)
             case .exitReadingMode:
                 menu.addItem(exitReadingModeItem)
-                menu.addItem(.separator())
-            case .toggleAlwaysOn:
-                menu.addItem(alwaysOnItem)
+            case .readingAutoPageSpeedHeader:
+                menu.addItem(readingAutoPageSpeedItem)
             case .detailDisplayHeader:
                 menu.addItem(detailDisplayModeItem)
             case .selectScrollingDetailDisplay:
-                menu.addItem(scrollingDetailItem)
+                continue
             case .selectPagingDetailDisplay:
-                menu.addItem(pagingDetailItem)
-            case .readingAutoPageSpeedHeader:
-                menu.addItem(.separator())
-                menu.addItem(readingAutoPageSpeedItem)
+                continue
             case .selectSlowReadingAutoPageSpeed:
-                menu.addItem(slowReadingAutoPageSpeedItem)
+                continue
             case .selectNormalReadingAutoPageSpeed:
-                menu.addItem(normalReadingAutoPageSpeedItem)
+                continue
             case .selectFastReadingAutoPageSpeed:
-                menu.addItem(fastReadingAutoPageSpeedItem)
+                continue
             case .touchBarSectionHeader:
                 menu.addItem(.separator())
                 menu.addItem(touchBarSectionItem)
             case .touchBarModeInfo:
                 menu.addItem(touchBarModeItem)
+                menu.addItem(languageItem)
             case .togglePause:
                 menu.addItem(pauseItem)
             case .refreshNow:
-                menu.addItem(refresh)
+                menu.addItem(refreshItem)
             case .showTouchBarHost:
                 continue
             case .quit:
                 menu.addItem(.separator())
-                menu.addItem(quit)
+                menu.addItem(quitItem)
             }
         }
         return menu
@@ -247,10 +263,6 @@ final class MenuBarController {
         delegate?.menuBarDidRequestExitReadingMode()
     }
 
-    @objc private func toggleAlwaysOn() {
-        delegate?.menuBarDidToggleAlwaysOn()
-    }
-
     @objc private func selectScrollingDetailDisplay() {
         delegate?.menuBarDidSelectDetailDisplayMode(.scrolling)
     }
@@ -269,6 +281,14 @@ final class MenuBarController {
 
     @objc private func selectFastReadingAutoPageSpeed() {
         delegate?.menuBarDidSelectReadingAutoPageSpeed(.fast)
+    }
+
+    @objc private func selectEnglishLanguage() {
+        delegate?.menuBarDidSelectDisplayLanguage(.english)
+    }
+
+    @objc private func selectSimplifiedChineseLanguage() {
+        delegate?.menuBarDidSelectDisplayLanguage(.simplifiedChinese)
     }
 
     @objc private func refreshNow() {
@@ -317,11 +337,13 @@ final class MenuBarController {
             preferredIdentifier: selectedIdentifier
         )
         let activeVoiceName = sortedOptions.first(where: { $0.identifier == activeIdentifier })?.name
-        completionSpeechVoiceItem.title = "Voice: \(selectedIdentifier == nil ? "Automatic Chinese" : activeVoiceName ?? "Selected")"
+        let automaticVoice = displayLanguage == .english ? "Automatic Chinese" : "自动中文"
+        let selectedVoice = displayLanguage == .english ? "Selected" : "已选择"
+        completionSpeechVoiceItem.title = "\(displayLanguage == .english ? "Voice" : "语音")\(localizedLabelSeparator())\(selectedIdentifier == nil ? automaticVoice : activeVoiceName ?? selectedVoice)"
 
         let submenu = NSMenu()
         let automaticItem = NSMenuItem(
-            title: "Automatic Chinese",
+            title: automaticVoice,
             action: #selector(selectCompletionSpeechVoice(_:)),
             keyEquivalent: ""
         )
@@ -351,11 +373,11 @@ final class MenuBarController {
     private func updateCompletionSpeechRateMenu(selectedRate: CompletionSpeechRate) {
         guard completionSpeechRateMenuSelection != selectedRate else { return }
         completionSpeechRateMenuSelection = selectedRate
-        completionSpeechRateItem.title = "Speech Rate: \(selectedRate.menuText)"
+        completionSpeechRateItem.title = "\(displayLanguage == .english ? "Speech Rate" : "朗读语速")\(localizedLabelSeparator())\(localizedSpeechRate(selectedRate))"
         let submenu = NSMenu()
         for rate in CompletionSpeechRate.allCases {
             let item = NSMenuItem(
-                title: rate.menuText,
+                title: localizedSpeechRate(rate),
                 action: #selector(selectCompletionSpeechRate(_:)),
                 keyEquivalent: ""
             )
@@ -370,11 +392,11 @@ final class MenuBarController {
     private func updateCompletionSpeechPitchMenu(selectedPitch: CompletionSpeechPitch) {
         guard completionSpeechPitchMenuSelection != selectedPitch else { return }
         completionSpeechPitchMenuSelection = selectedPitch
-        completionSpeechPitchItem.title = "Speech Pitch: \(selectedPitch.menuText)"
+        completionSpeechPitchItem.title = "\(displayLanguage == .english ? "Speech Pitch" : "朗读音调")\(localizedLabelSeparator())\(localizedSpeechPitch(selectedPitch))"
         let submenu = NSMenu()
         for pitch in CompletionSpeechPitch.allCases {
             let item = NSMenuItem(
-                title: pitch.menuText,
+                title: localizedSpeechPitch(pitch),
                 action: #selector(selectCompletionSpeechPitch(_:)),
                 keyEquivalent: ""
             )
@@ -394,5 +416,87 @@ final class MenuBarController {
             .map { "\($0.identifier)|\($0.name)|\($0.language)|\($0.qualityRank)" }
             .joined(separator: "\n")
         return "\(selectedIdentifier ?? "<automatic>")\n\(voiceSignature)"
+    }
+
+    private func updateLocalizedTitles(
+        language: DisplayLanguage,
+        state: CodexDisplayState,
+        paused: Bool,
+        detailDisplayMode: TouchBarDetailDisplayMode,
+        readingAutoPageSpeed: ReadingAutoPageSpeed,
+        alwaysOnStatus: String
+    ) {
+        let isEnglish = language == .english
+        sessionSectionItem.title = isEnglish ? "Codex Session" : "Codex 会话"
+        sessionItem.title = "\(isEnglish ? "Session" : "会话")\(localizedLabelSeparator())\(state.sessionId ?? "-")"
+        projectItem.title = "\(isEnglish ? "Project" : "项目")\(localizedLabelSeparator())\(state.projectPath.isEmpty ? "-" : state.projectPath)"
+        readingSectionItem.title = isEnglish ? "Reading" : "阅读"
+        touchBarSectionItem.title = "Touch Bar"
+        touchBarModeItem.title = "Touch Bar\(localizedLabelSeparator())\(alwaysOnStatus)"
+        detailDisplayModeItem.title = "\(isEnglish ? "Detail Display" : "正文显示")\(localizedLabelSeparator())\(localizedDetailDisplayMode(detailDisplayMode))"
+        scrollingDetailItem.title = localizedDetailDisplayMode(.scrolling)
+        pagingDetailItem.title = localizedDetailDisplayMode(.paging)
+        readingAutoPageSpeedItem.title = "\(isEnglish ? "Reading Speed" : "阅读速度")\(localizedLabelSeparator())\(localizedReadingAutoPageSpeed(readingAutoPageSpeed))"
+        slowReadingAutoPageSpeedItem.title = localizedReadingAutoPageSpeed(.slow)
+        normalReadingAutoPageSpeedItem.title = localizedReadingAutoPageSpeed(.normal)
+        fastReadingAutoPageSpeedItem.title = localizedReadingAutoPageSpeed(.fast)
+        openCurrentSessionItem.title = isEnglish ? "Open Current Session" : "打开当前会话"
+        completionSpeechItem.title = isEnglish ? "Read Completion Aloud" : "完成后自动朗读"
+        openReadingFileItem.title = isEnglish ? "Open Reading File..." : "打开阅读文件..."
+        exitReadingModeItem.title = isEnglish ? "Exit Reading Mode" : "退出阅读模式"
+        languageItem.title = isEnglish ? "Language" : "语言"
+        englishLanguageItem.title = "English"
+        chineseLanguageItem.title = "简体中文"
+        englishLanguageItem.state = language == .english ? .on : .off
+        chineseLanguageItem.state = language == .simplifiedChinese ? .on : .off
+        pauseItem.title = paused ? (isEnglish ? "Resume Updates" : "继续更新") : (isEnglish ? "Pause Updates" : "暂停更新")
+        refreshItem.title = isEnglish ? "Refresh Now" : "立即刷新"
+        quitItem.title = isEnglish ? "Quit" : "退出"
+    }
+
+    private func localizedDetailDisplayMode(_ mode: TouchBarDetailDisplayMode) -> String {
+        switch (displayLanguage, mode) {
+        case (.english, .scrolling): return "Scrolling"
+        case (.english, .paging): return "Paging"
+        case (.simplifiedChinese, .scrolling): return "滚动"
+        case (.simplifiedChinese, .paging): return "翻页"
+        }
+    }
+
+    private func localizedLabelSeparator() -> String {
+        displayLanguage == .english ? ": " : "："
+    }
+
+    private func localizedReadingAutoPageSpeed(_ speed: ReadingAutoPageSpeed) -> String {
+        switch (displayLanguage, speed) {
+        case (.english, .slow): return "Slow"
+        case (.english, .normal): return "Normal"
+        case (.english, .fast): return "Fast"
+        case (.simplifiedChinese, .slow): return "慢"
+        case (.simplifiedChinese, .normal): return "正常"
+        case (.simplifiedChinese, .fast): return "快"
+        }
+    }
+
+    private func localizedSpeechRate(_ rate: CompletionSpeechRate) -> String {
+        switch (displayLanguage, rate) {
+        case (.english, .slow): return "Slow"
+        case (.english, .normal): return "Normal"
+        case (.english, .fast): return "Fast"
+        case (.simplifiedChinese, .slow): return "慢"
+        case (.simplifiedChinese, .normal): return "正常"
+        case (.simplifiedChinese, .fast): return "快"
+        }
+    }
+
+    private func localizedSpeechPitch(_ pitch: CompletionSpeechPitch) -> String {
+        switch (displayLanguage, pitch) {
+        case (.english, .lower): return "Lower"
+        case (.english, .normal): return "Normal"
+        case (.english, .higher): return "Higher"
+        case (.simplifiedChinese, .lower): return "低"
+        case (.simplifiedChinese, .normal): return "正常"
+        case (.simplifiedChinese, .higher): return "高"
+        }
     }
 }

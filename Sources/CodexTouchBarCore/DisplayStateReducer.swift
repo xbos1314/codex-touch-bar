@@ -24,7 +24,7 @@ public final class DisplayStateReducer {
                 timestamp: "",
                 kind: .thinking,
                 status: .completed,
-                text: "等待 Codex 活动"
+                text: "Waiting for Codex activity"
             ),
             activities: [],
             latestAssistantText: nil,

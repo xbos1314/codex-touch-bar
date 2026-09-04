@@ -30,22 +30,26 @@ public struct TouchBarStatusIcon: Equatable {
 }
 
 public enum TouchBarStatusIconPolicy {
-    public static func icon(for state: CodexDisplayState, now: Date = Date()) -> TouchBarStatusIcon? {
+    public static func icon(
+        for state: CodexDisplayState,
+        now: Date = Date(),
+        language: DisplayLanguage = .english
+    ) -> TouchBarStatusIcon? {
         if state.status == .failed || state.latestActivity?.status == .failed {
-            return TouchBarStatusIcon(systemSymbolName: "xmark.circle", accessibilityLabel: "失败", fallbackText: "失败", tone: .failed)
+            return statusIcon(symbol: "xmark.circle", english: "Failed", chinese: "失败", tone: .failed, language: language)
         }
 
         if state.isTaskComplete, state.status == .completed {
-            return TouchBarStatusIcon(systemSymbolName: "checkmark.circle", accessibilityLabel: "已完成", fallbackText: "完成", tone: .completed)
+            return statusIcon(symbol: "checkmark.circle", english: "Completed", chinese: "已完成", tone: .completed, language: language)
         }
 
         if state.isTaskRunning || isRunning(state) {
-            return runningFrame(now: now)
+            return runningFrame(now: now, language: language)
         }
 
         switch state.status {
         case .interrupted:
-            return TouchBarStatusIcon(systemSymbolName: "stop.circle", accessibilityLabel: "已停止", fallbackText: "停止")
+            return statusIcon(symbol: "stop.circle", english: "Stopped", chinese: "已停止", tone: .neutral, language: language)
         case .idle, .completed, .thinking, .runningTool, .readingFile, .editingFile, .waitingApproval, .failed:
             return nil
         }
@@ -64,7 +68,7 @@ public enum TouchBarStatusIconPolicy {
         }
     }
 
-    private static func runningFrame(now: Date) -> TouchBarStatusIcon {
+    private static func runningFrame(now: Date, language: DisplayLanguage) -> TouchBarStatusIcon {
         let frames = [
             "circle.bottomhalf.filled",
             "circle.lefthalf.filled",
@@ -72,12 +76,18 @@ public enum TouchBarStatusIconPolicy {
             "circle.righthalf.filled"
         ]
         let index = Int(now.timeIntervalSince1970 * 2) % frames.count
-        return TouchBarStatusIcon(
-            systemSymbolName: frames[index],
-            accessibilityLabel: "执行中",
-            fallbackText: "执行中",
-            tone: .running
-        )
+        return statusIcon(symbol: frames[index], english: "Working", chinese: "执行中", tone: .running, language: language)
+    }
+
+    private static func statusIcon(
+        symbol: String,
+        english: String,
+        chinese: String,
+        tone: TouchBarStatusIconTone,
+        language: DisplayLanguage
+    ) -> TouchBarStatusIcon {
+        let text = language == .english ? english : chinese
+        return TouchBarStatusIcon(systemSymbolName: symbol, accessibilityLabel: text, fallbackText: text, tone: tone)
     }
 }
 

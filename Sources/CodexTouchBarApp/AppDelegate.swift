@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     private let sessionsRootURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".codex/sessions", isDirectory: true)
 
-    private var state = CodexDisplayState.idle(message: "等待 Codex 活动")
+    private var state = CodexDisplayState.idle(message: "Waiting for Codex activity")
     private var availableSessions: [CodexSessionFile] = []
     private var sessionSelectionMode: CodexSessionSelectionMode = .automaticLatest
     private var selectedURL: URL?
@@ -79,7 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
                 from: availableSessions,
                 mode: sessionSelectionMode
             ) else {
-                state = .idle(message: "等待 Codex 活动")
+                state = .idle(message: waitingForCodexActivity())
                 cursor = 0
                 selectedURL = nil
                 stopSelectedSessionMonitor()
@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
                 render()
             }
         } catch {
-            state = .idle(message: "无法读取 Codex 会话")
+            state = .idle(message: cannotReadCodexSession())
             render()
         }
     }
@@ -136,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
             state = reducer.reduce(state: state, events: events, session: session)
             render()
         } catch {
-            state = .idle(message: "无法读取 Codex 会话")
+            state = .idle(message: cannotReadCodexSession())
             render()
         }
     }
@@ -185,7 +185,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
             let progress = touchBarController.applyReading(
                 document: readingDocument,
                 requestedPageIndex: readingPageIndex,
-                autoPageInterval: settings.readingAutoPageSpeed.intervalSeconds
+                autoPageInterval: settings.readingAutoPageSpeed.intervalSeconds,
+                language: settings.displayLanguage
             )
             readingPageIndex = progress.pageIndex
             readingPageCount = progress.pageCount
@@ -193,7 +194,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
         } else {
             touchBarController.apply(
                 state: state,
-                detail: rotation.detailPresentation(for: state, idleTargetName: idleTargetName()),
+                detail: rotation.detailPresentation(
+                    for: state,
+                    idleTargetName: idleTargetName(),
+                    language: settings.displayLanguage
+                ),
+                language: settings.displayLanguage,
                 displayMode: settings.detailDisplayMode,
                 sessions: availableSessions,
                 selectionMode: sessionSelectionMode,
@@ -207,15 +213,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
         }
         let progressTitle = ReadingProgressPresentationPolicy.presentation(
             pageIndex: readingPageIndex,
-            pageCount: readingDocument == nil ? 0 : readingPageCount
+            pageCount: readingDocument == nil ? 0 : readingPageCount,
+            language: settings.displayLanguage
         ).progressTitle
         menuBarController.apply(
             state: state,
+            language: settings.displayLanguage,
             paused: paused,
-            presentationMode: settings.presentationMode,
             detailDisplayMode: settings.detailDisplayMode,
             readingAutoPageSpeed: settings.readingAutoPageSpeed,
-            alwaysOnStatus: alwaysOnPresenter.status.menuText,
+            alwaysOnStatus: alwaysOnPresenter.status.menuText(language: settings.displayLanguage),
             readingFileName: readingDocument?.fileName,
             readingFilePath: readingDocument?.fileURL.path,
             readingProgressTitle: progressTitle,
@@ -254,13 +261,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
         render()
     }
 
-    func menuBarDidToggleAlwaysOn() {
-        settings.presentationMode = settings.presentationMode == .experimentalAlwaysOn
-            ? .officialHostWindow
-            : .experimentalAlwaysOn
-        applyPresentationMode()
-    }
-
     func menuBarDidToggleCompletionSpeech() {
         settings.completionSpeechEnabled.toggle()
         if !settings.completionSpeechEnabled {
@@ -297,6 +297,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
         render()
     }
 
+    func menuBarDidSelectDisplayLanguage(_ language: DisplayLanguage) {
+        guard settings.displayLanguage != language else { return }
+        settings.displayLanguage = language
+        render()
+    }
+
     func menuBarDidRequestRefresh() {
         refreshSession()
         pollTail()
@@ -327,12 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     }
 
     private func applyPresentationMode() {
-        switch settings.presentationMode {
-        case .officialHostWindow:
-            alwaysOnPresenter.dismiss()
-        case .experimentalAlwaysOn:
-            _ = alwaysOnPresenter.present(touchBarController.touchBar)
-        }
+        _ = alwaysOnPresenter.present(touchBarController.touchBar)
         render()
     }
 
@@ -342,8 +343,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
             return "AUTO"
         case .locked:
             let projectName = state.projectName.trimmingCharacters(in: .whitespacesAndNewlines)
-            return projectName.isEmpty || projectName == "-" ? "当前项目" : projectName
+            return projectName.isEmpty || projectName == "-" ? currentProjectLabel() : projectName
         }
+    }
+
+    private func waitingForCodexActivity() -> String {
+        settings.displayLanguage == .english ? "Waiting for Codex activity" : "等待 Codex 活动"
+    }
+
+    private func cannotReadCodexSession() -> String {
+        settings.displayLanguage == .english ? "Unable to read Codex session" : "无法读取 Codex 会话"
+    }
+
+    private func currentProjectLabel() -> String {
+        settings.displayLanguage == .english ? "Current Project" : "当前项目"
     }
 
     private func openCurrentSessionInDesktop() {
@@ -367,7 +380,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
                 timestamp: "",
                 kind: .thinking,
                 status: .completed,
-                text: "等待 Codex 活动"
+                text: waitingForCodexActivity()
             ),
             activities: state.activities,
             latestAssistantText: nil,
@@ -382,8 +395,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
 
     private func openReadingFilePanel() {
         let panel = NSOpenPanel()
-        panel.title = "Open Reading File"
-        panel.prompt = "Open"
+        panel.title = settings.displayLanguage == .english ? "Open Reading File" : "打开阅读文件"
+        panel.prompt = settings.displayLanguage == .english ? "Open" : "打开"
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
@@ -427,7 +440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     private func showReadingError(_ error: Error, fileName: String) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "无法读取文件"
+        alert.messageText = settings.displayLanguage == .english ? "Unable to Read File" : "无法读取文件"
         alert.informativeText = "\(fileName)\n\(error.localizedDescription)"
         alert.addButton(withTitle: "OK")
         alert.runModal()

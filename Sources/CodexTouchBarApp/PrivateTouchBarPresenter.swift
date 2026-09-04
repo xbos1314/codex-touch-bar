@@ -9,16 +9,16 @@ enum PrivateTouchBarPresentationStatus: Equatable {
     case unavailable(String)
     case failed(String)
 
-    var menuText: String {
+    func menuText(language: DisplayLanguage) -> String {
         switch self {
         case .inactive:
-            return "Official host window"
+            return language == .english ? "Official host window" : "官方宿主窗口"
         case .active:
-            return "Control Strip entry active"
+            return language == .english ? "Control Strip entry active" : "Control Strip 入口已启用"
         case .unavailable(let reason):
-            return "Always-on unavailable: \(reason)"
+            return language == .english ? "Always-on unavailable: \(reason)" : "常驻不可用：\(reason)"
         case .failed(let reason):
-            return "Always-on failed: \(reason)"
+            return language == .english ? "Always-on failed: \(reason)" : "常驻失败：\(reason)"
         }
     }
 }
