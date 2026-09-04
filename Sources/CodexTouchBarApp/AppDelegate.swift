@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     private var readingDocument: ReadingDocument?
     private var readingPageIndex = 0
     private var readingPageCount = 0
+    private lazy var cachedCompletionSpeechVoiceOptions: [CompletionSpeechVoiceOption] = loadCompletionSpeechVoiceOptions()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         menuBarController.delegate = self
@@ -179,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     }
 
     private func render() {
+        let voiceOptions = completionSpeechVoiceOptions()
         if let readingDocument {
             let progress = touchBarController.applyReading(
                 document: readingDocument,
@@ -197,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
                 selectionMode: sessionSelectionMode,
                 completionSpeechEnabled: settings.completionSpeechEnabled,
                 completionSpeechVoiceIdentifier: settings.completionSpeechVoiceIdentifier,
-                completionSpeechVoiceOptions: completionSpeechVoiceOptions(),
+                completionSpeechVoiceOptions: voiceOptions,
                 completionSpeechRate: settings.completionSpeechRate,
                 completionSpeechPitch: settings.completionSpeechPitch
             )
@@ -220,7 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
             continueReadingFileName: resumableReadingFileName(),
             completionSpeechEnabled: settings.completionSpeechEnabled,
             completionSpeechVoiceIdentifier: settings.completionSpeechVoiceIdentifier,
-            completionSpeechVoiceOptions: completionSpeechVoiceOptions(),
+            completionSpeechVoiceOptions: voiceOptions,
             completionSpeechRate: settings.completionSpeechRate,
             completionSpeechPitch: settings.completionSpeechPitch
         )
@@ -432,6 +434,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     }
 
     private func completionSpeechVoiceOptions() -> [CompletionSpeechVoiceOption] {
+        cachedCompletionSpeechVoiceOptions
+    }
+
+    private func loadCompletionSpeechVoiceOptions() -> [CompletionSpeechVoiceOption] {
         AVSpeechSynthesisVoice.speechVoices().map { voice in
             CompletionSpeechVoiceOption(
                 identifier: voice.identifier,

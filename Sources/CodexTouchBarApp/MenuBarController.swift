@@ -48,6 +48,9 @@ final class MenuBarController {
     private let exitReadingModeItem = NSMenuItem(title: "Exit Reading Mode", action: #selector(exitReadingMode), keyEquivalent: "")
     private let alwaysOnItem = NSMenuItem(title: "Experimental Always-On Touch Bar", action: #selector(toggleAlwaysOn), keyEquivalent: "a")
     private let pauseItem = NSMenuItem(title: "Pause Updates", action: #selector(togglePause), keyEquivalent: "p")
+    private var completionSpeechVoiceMenuSignature = ""
+    private var completionSpeechRateMenuSelection: CompletionSpeechRate?
+    private var completionSpeechPitchMenuSelection: CompletionSpeechPitch?
 
     init() {
         statusItem.button?.title = ""
@@ -301,6 +304,13 @@ final class MenuBarController {
         selectedIdentifier: String?,
         options: [CompletionSpeechVoiceOption]
     ) {
+        let signature = makeCompletionSpeechVoiceMenuSignature(
+            selectedIdentifier: selectedIdentifier,
+            options: options
+        )
+        guard signature != completionSpeechVoiceMenuSignature else { return }
+        completionSpeechVoiceMenuSignature = signature
+
         let sortedOptions = CompletionSpeechVoicePolicy.sortedVoiceOptions(options)
         let activeIdentifier = CompletionSpeechVoicePolicy.selectedVoiceIdentifier(
             from: options,
@@ -339,6 +349,8 @@ final class MenuBarController {
     }
 
     private func updateCompletionSpeechRateMenu(selectedRate: CompletionSpeechRate) {
+        guard completionSpeechRateMenuSelection != selectedRate else { return }
+        completionSpeechRateMenuSelection = selectedRate
         completionSpeechRateItem.title = "Speech Rate: \(selectedRate.menuText)"
         let submenu = NSMenu()
         for rate in CompletionSpeechRate.allCases {
@@ -356,6 +368,8 @@ final class MenuBarController {
     }
 
     private func updateCompletionSpeechPitchMenu(selectedPitch: CompletionSpeechPitch) {
+        guard completionSpeechPitchMenuSelection != selectedPitch else { return }
+        completionSpeechPitchMenuSelection = selectedPitch
         completionSpeechPitchItem.title = "Speech Pitch: \(selectedPitch.menuText)"
         let submenu = NSMenu()
         for pitch in CompletionSpeechPitch.allCases {
@@ -370,5 +384,15 @@ final class MenuBarController {
             submenu.addItem(item)
         }
         completionSpeechPitchItem.submenu = submenu
+    }
+
+    private func makeCompletionSpeechVoiceMenuSignature(
+        selectedIdentifier: String?,
+        options: [CompletionSpeechVoiceOption]
+    ) -> String {
+        let voiceSignature = options
+            .map { "\($0.identifier)|\($0.name)|\($0.language)|\($0.qualityRank)" }
+            .joined(separator: "\n")
+        return "\(selectedIdentifier ?? "<automatic>")\n\(voiceSignature)"
     }
 }
