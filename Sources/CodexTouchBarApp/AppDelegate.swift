@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     private lazy var reducer = DisplayStateReducer(parser: parser)
     private let rotation = RotatingDetailSelector()
     private var settings = TouchBarSettings()
+    private let completionSpeechController = CompletionSpeechController()
     private let touchBarAvailable = TouchBarHardwareCapability.isAvailable
     private lazy var touchBarController: TouchBarController? = touchBarAvailable ? TouchBarController() : nil
     private lazy var alwaysOnPresenter: PrivateTouchBarPresenter? = touchBarAvailable ? PrivateTouchBarPresenter() : nil
@@ -45,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        completionSpeechController.stop()
         persistReadingProgress()
         alwaysOnPresenter?.dismiss()
         sessionsDirectoryMonitor?.stop()
@@ -190,6 +192,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
         let statusBarContent = readingDocument.map {
             (text: $0.text, key: "reading|\($0.id)")
         } ?? (text: codexDetail.text, key: "codex|\(state.sessionId ?? "-")|\(codexDetail.text)")
+        if readingDocument == nil {
+            completionSpeechController.apply(
+                state: state,
+                isEnabled: settings.completionSpeechEnabled,
+                voiceIdentifier: settings.completionSpeechVoiceIdentifier,
+                voiceOptions: voiceOptions,
+                rate: settings.completionSpeechRate,
+                pitch: settings.completionSpeechPitch
+            )
+        } else {
+            completionSpeechController.stop()
+        }
         if let readingDocument, let touchBarController {
             let progress = touchBarController.applyReading(
                 document: readingDocument,
@@ -209,12 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
                 detailScrollSpeed: settings.detailScrollSpeed,
                 detailPageSpeed: settings.detailPageSpeed,
                 sessions: availableSessions,
-                selectionMode: sessionSelectionMode,
-                completionSpeechEnabled: settings.completionSpeechEnabled,
-                completionSpeechVoiceIdentifier: settings.completionSpeechVoiceIdentifier,
-                completionSpeechVoiceOptions: voiceOptions,
-                completionSpeechRate: settings.completionSpeechRate,
-                completionSpeechPitch: settings.completionSpeechPitch
+                selectionMode: sessionSelectionMode
             )
             readingPageCount = 0
         } else {
@@ -294,26 +303,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     func menuBarDidToggleCompletionSpeech() {
         settings.completionSpeechEnabled.toggle()
         if !settings.completionSpeechEnabled {
-            touchBarController?.stopCompletionSpeech()
+            completionSpeechController.stop()
         }
         render()
     }
 
     func menuBarDidSelectCompletionSpeechVoice(identifier: String?) {
         settings.completionSpeechVoiceIdentifier = identifier
-        touchBarController?.stopCompletionSpeech()
+        completionSpeechController.stop()
         render()
     }
 
     func menuBarDidSelectCompletionSpeechRate(_ rate: CompletionSpeechRate) {
         settings.completionSpeechRate = rate
-        touchBarController?.stopCompletionSpeech()
+        completionSpeechController.stop()
         render()
     }
 
     func menuBarDidSelectCompletionSpeechPitch(_ pitch: CompletionSpeechPitch) {
         settings.completionSpeechPitch = pitch
-        touchBarController?.stopCompletionSpeech()
+        completionSpeechController.stop()
         render()
     }
 
@@ -373,7 +382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
 
     func touchBarDidRequestIdleCurrentSession() {
         state = idleDisplayStateKeepingCurrentSession()
-        touchBarController?.stopCompletionSpeech()
+        completionSpeechController.stop()
         render()
     }
 
@@ -457,6 +466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarControllerDeleg
     private func openReadingFile(at url: URL) {
         do {
             let document = try ReadingFileLoader.load(from: url)
+            completionSpeechController.reset()
             readingDocument = document
             settings.statusBarContentEnabled = true
             settings.lastReadingFilePath = url.path

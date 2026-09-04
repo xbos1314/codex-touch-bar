@@ -1,5 +1,4 @@
 import AppKit
-import AVFoundation
 import CodexTouchBarCore
 
 @MainActor
@@ -137,12 +136,7 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         detailScrollSpeed: DetailDisplaySpeed,
         detailPageSpeed: DetailDisplaySpeed,
         sessions: [CodexSessionFile],
-        selectionMode: CodexSessionSelectionMode,
-        completionSpeechEnabled: Bool,
-        completionSpeechVoiceIdentifier: String?,
-        completionSpeechVoiceOptions: [CompletionSpeechVoiceOption],
-        completionSpeechRate: CompletionSpeechRate,
-        completionSpeechPitch: CompletionSpeechPitch
+        selectionMode: CodexSessionSelectionMode
     ) {
         updateLocalization(language)
         let leavingReadingMode = readingDocument != nil
@@ -169,30 +163,6 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         completionSoundState = completionSoundDecision.next
         if completionSoundDecision.shouldPlay {
             playCompletionSound()
-        }
-        let completionSpeechDecision = CompletionSpeechPolicy.evaluate(
-            previous: completionSpeechState,
-            isEnabled: completionSpeechEnabled,
-            sessionKey: state.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
-            turnKey: completionSoundTurnKey(for: state),
-            currentMood: basePetMood,
-            assistantText: state.latestAssistantText
-        )
-        completionSpeechState = completionSpeechDecision.next
-        if completionSpeechDecision.shouldStop {
-            stopCompletionSpeech()
-        }
-        if let textToSpeak = completionSpeechDecision.textToSpeak {
-            let voiceIdentifier = CompletionSpeechVoicePolicy.selectedVoiceIdentifier(
-                from: completionSpeechVoiceOptions,
-                preferredIdentifier: completionSpeechVoiceIdentifier
-            )
-            speakCompletionText(
-                textToSpeak,
-                voiceIdentifier: voiceIdentifier,
-                rate: completionSpeechRate,
-                pitch: completionSpeechPitch
-            )
         }
         let petMood: TouchBarPetMood = isShowingSessionSelector ? .selecting : basePetMood
         let usesIdlePlayground = petMood == .idle
@@ -316,31 +286,6 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         return nil
     }
 
-    private var completionSpeechState = CompletionSpeechState()
-    private let completionSpeechSynthesizer = AVSpeechSynthesizer()
-
-    func stopCompletionSpeech() {
-        if completionSpeechSynthesizer.isSpeaking {
-            completionSpeechSynthesizer.stopSpeaking(at: .immediate)
-        }
-    }
-
-    private func speakCompletionText(
-        _ text: String,
-        voiceIdentifier: String?,
-        rate: CompletionSpeechRate,
-        pitch: CompletionSpeechPitch
-    ) {
-        stopCompletionSpeech()
-        let utterance = AVSpeechUtterance(string: text)
-        if let voiceIdentifier {
-            utterance.voice = AVSpeechSynthesisVoice(identifier: voiceIdentifier)
-        }
-        utterance.rate = rate.utteranceRate
-        utterance.pitchMultiplier = pitch.multiplier
-        completionSpeechSynthesizer.speak(utterance)
-    }
-
     func applyReading(
         document: ReadingDocument,
         requestedPageIndex: Int,
@@ -353,8 +298,6 @@ final class TouchBarController: NSObject, NSTouchBarDelegate {
         readingAutoPageInterval = autoPageInterval
         readingDocument = document
         completionSoundState = CompletionSoundState()
-        completionSpeechState = CompletionSpeechState()
-        stopCompletionSpeech()
         updatePetPresentation(mood: .reading, usesIdlePlayground: false, idleText: "")
         isShowingSessionSelector = false
         pageTimer?.invalidate()
