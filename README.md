@@ -1,5 +1,7 @@
 # Codex Touch Bar
 
+![Codex Touch Bar hero image](assets/hero.png)
+
 Languages: English | [简体中文](README.zh-CN.md)
 
 Codex Touch Bar is a macOS menu bar app that mirrors the active Codex task onto the physical Touch Bar. It shows the current Codex conversation, assistant replies, tool activity, approval waits, completion state, and a compact file reading mode.

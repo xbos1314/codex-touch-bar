@@ -1,5 +1,7 @@
 # Codex Touch Bar
 
+![Codex Touch Bar 宣传图](assets/hero.png)
+
 语言: [English](README.md) | 简体中文
 
 Codex Touch Bar 是一个 macOS 状态栏应用，用于把 Codex 当前会话、智能体回复、工具调用、审批等待、完成状态和轻量阅读模式显示到 MacBook Pro 的 Touch Bar 上。
