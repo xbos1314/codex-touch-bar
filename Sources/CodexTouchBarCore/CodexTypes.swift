@@ -184,6 +184,7 @@ public enum CodexStatus: String, Equatable {
 
 public struct CodexDisplayState: Equatable {
     public var sessionId: String?
+    public var activeTurnId: String?
     public var projectName: String
     public var projectPath: String
     public var status: CodexStatus
@@ -199,6 +200,7 @@ public struct CodexDisplayState: Equatable {
 
     public init(
         sessionId: String?,
+        activeTurnId: String? = nil,
         projectName: String,
         projectPath: String,
         status: CodexStatus,
@@ -213,6 +215,7 @@ public struct CodexDisplayState: Equatable {
         lastUpdatedAt: Date?
     ) {
         self.sessionId = sessionId
+        self.activeTurnId = activeTurnId
         self.projectName = projectName
         self.projectPath = projectPath
         self.status = status

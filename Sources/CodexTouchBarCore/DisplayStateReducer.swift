@@ -3,6 +3,12 @@ import Foundation
 public final class DisplayStateReducer {
     private let parser: CodexEventParser
 
+    private struct TurnLifecycle {
+        var startedTurnIDs: [String] = []
+        var completedTurnIDs: [String] = []
+        var hasUnidentifiedCompletion = false
+    }
+
     public init(parser: CodexEventParser = CodexEventParser()) {
         self.parser = parser
     }
@@ -53,20 +59,24 @@ public final class DisplayStateReducer {
         }
 
         let automaticTurnIDs = CodexAutomaticContextCompactionPolicy.automaticTurnIDs(in: events)
-        let sawTaskComplete = events.contains {
-            CodexAutomaticContextCompactionPolicy.isTaskCompleteEvent($0)
-                && !CodexAutomaticContextCompactionPolicy.isAutomaticCompletion(
-                    $0,
-                    automaticTurnIDs: automaticTurnIDs,
-                    activities: next.activities
-                )
+        let lifecycle = turnLifecycle(
+            in: events,
+            automaticTurnIDs: automaticTurnIDs,
+            currentActivities: next.activities
+        )
+        if let startedTurnID = lifecycle.startedTurnIDs.last {
+            next.activeTurnId = startedTurnID
+            next.isTaskRunning = true
+            next.isTaskComplete = false
         }
+        let sawTaskComplete = sawTaskComplete(lifecycle: lifecycle, state: next)
         let previousActivities = next.activities
         let activities = parser.activities(from: events, previous: next.activities)
         if let latest = activities.last {
             next.activities = activities
             next.latestActivity = latest
             if sawTaskComplete {
+                next.activeTurnId = nil
                 next.isTaskRunning = false
                 next.isTaskComplete = true
                 next.status = .completed
@@ -87,12 +97,14 @@ public final class DisplayStateReducer {
                 }
             }
         } else if sawTaskComplete {
+            next.activeTurnId = nil
             next.isTaskRunning = false
             next.isTaskComplete = true
             next.status = .completed
         } else if activities != previousActivities {
             next.activities = activities
             next.latestActivity = nil
+            next.activeTurnId = nil
             next.isTaskRunning = false
             next.isTaskComplete = false
             next.status = .idle
@@ -109,6 +121,54 @@ public final class DisplayStateReducer {
 
     private func normalizedText(_ text: String) -> String {
         CodexDisplayTextFormatter.displayText(from: text)
+    }
+
+    private func turnLifecycle(
+        in events: [CodexEvent],
+        automaticTurnIDs: Set<String>,
+        currentActivities: [CodexActivity]
+    ) -> TurnLifecycle {
+        var lifecycle = TurnLifecycle()
+        for event in events {
+            if CodexAutomaticContextCompactionPolicy.isTaskStartedEvent(event),
+               let turnID = turnID(from: event),
+               !automaticTurnIDs.contains(turnID) {
+                lifecycle.startedTurnIDs.append(turnID)
+            }
+
+            guard CodexAutomaticContextCompactionPolicy.isTaskCompleteEvent(event),
+                  !CodexAutomaticContextCompactionPolicy.isAutomaticCompletion(
+                    event,
+                    automaticTurnIDs: automaticTurnIDs,
+                    activities: currentActivities
+                  ) else {
+                continue
+            }
+
+            if let turnID = turnID(from: event) {
+                lifecycle.completedTurnIDs.append(turnID)
+            } else {
+                lifecycle.hasUnidentifiedCompletion = true
+            }
+        }
+        return lifecycle
+    }
+
+    private func turnID(from event: CodexEvent) -> String? {
+        guard let rawTurnID = event.payload?["turn_id"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawTurnID.isEmpty else {
+            return nil
+        }
+        return rawTurnID
+    }
+
+    private func sawTaskComplete(lifecycle: TurnLifecycle, state: CodexDisplayState) -> Bool {
+        if let activeTurnId = state.activeTurnId {
+            return lifecycle.completedTurnIDs.contains(activeTurnId)
+        }
+
+        return (lifecycle.startedTurnIDs.isEmpty && lifecycle.completedTurnIDs.count == 1)
+            || lifecycle.hasUnidentifiedCompletion
     }
 
     private func runningStatus(for activity: CodexActivity) -> CodexStatus {
@@ -138,6 +198,7 @@ public final class DisplayStateReducer {
     private func shouldInferCompletedFromAssistantReply(state: CodexDisplayState) -> Bool {
         guard state.isTaskRunning,
               !state.isTaskComplete,
+              state.activeTurnId == nil,
               let userTimestamp = state.latestUserTimestamp,
               let assistantTimestamp = state.latestAssistantTimestamp,
               !userTimestamp.isEmpty,
